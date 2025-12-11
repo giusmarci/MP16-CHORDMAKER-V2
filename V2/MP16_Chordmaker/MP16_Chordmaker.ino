@@ -584,19 +584,74 @@ void processButtonPresses() {
 //================================ MIDI PROCESSING ================================
 
 void updateMIDI() {
-  // Check for incoming Serial MIDI
-  if (midiMessageReady) {
-    midiMessageReady = false;
-    processIncomingMIDI(midiStatus, midiData1, midiData2);
+  // Poll Serial1 for MIDI data (more reliable than interrupt for clock)
+  while (Serial1.available()) {
+    uint8_t inByte = Serial1.read();
+
+    // Handle real-time messages immediately (single byte, 0xF8-0xFF)
+    if (inByte >= 0xF8) {
+      switch (inByte) {
+        case 0xF8:  // MIDI Clock (24 PPQN)
+          midiClockReceived = true;
+          midiClockCounter++;
+          lastClockTime = millis();
+          break;
+        case 0xFA:  // Start
+          midiTransportRunning = true;
+          midiClockCounter = 0;
+          break;
+        case 0xFB:  // Continue
+          midiTransportRunning = true;
+          break;
+        case 0xFC:  // Stop
+          midiTransportRunning = false;
+          break;
+      }
+      continue;  // Don't process as regular MIDI
+    }
+
+    // Handle regular MIDI messages via state machine
+    switch (currentMidiState) {
+      case WAITING_FOR_STATUS:
+        if (inByte >= 0x80 && inByte < 0xF0) {
+          midiStatus = inByte;
+          currentMidiState = WAITING_FOR_DATA1;
+        }
+        break;
+      case WAITING_FOR_DATA1:
+        midiData1 = inByte;
+        currentMidiState = WAITING_FOR_DATA2;
+        break;
+      case WAITING_FOR_DATA2:
+        midiData2 = inByte;
+        processIncomingMIDI(midiStatus, midiData1, midiData2);
+        currentMidiState = WAITING_FOR_STATUS;
+        break;
+    }
   }
 
   // Check for incoming USB MIDI
-  if (usb_midi.available()) {
+  while (usb_midi.available()) {
     uint32_t packet = usb_midi.read();
     uint8_t status = (packet >> 8) & 0xFF;
     uint8_t data1 = (packet >> 16) & 0xFF;
     uint8_t data2 = (packet >> 24) & 0xFF;
-    processIncomingMIDI(status, data1, data2);
+
+    // Handle USB MIDI clock too
+    if (status == 0xF8) {
+      midiClockReceived = true;
+      midiClockCounter++;
+      lastClockTime = millis();
+    } else if (status == 0xFA) {
+      midiTransportRunning = true;
+      midiClockCounter = 0;
+    } else if (status == 0xFB) {
+      midiTransportRunning = true;
+    } else if (status == 0xFC) {
+      midiTransportRunning = false;
+    } else {
+      processIncomingMIDI(status, data1, data2);
+    }
   }
 
   // Process pad state changes (only when arp is off)
@@ -1523,47 +1578,6 @@ void updateEncoder() {
 }
 
 void midiInterruptHandler() {
-  uint8_t incomingByte = Serial1.read();
-
-  // Handle real-time messages first (single byte, can occur anytime)
-  if (incomingByte >= 0xF8) {
-    switch (incomingByte) {
-      case 0xF8:  // MIDI Clock (24 PPQN)
-        midiClockReceived = true;
-        midiClockCounter++;
-        lastClockTime = millis();
-        break;
-      case 0xFA:  // Start
-        midiTransportRunning = true;
-        midiClockCounter = 0;
-        break;
-      case 0xFB:  // Continue
-        midiTransportRunning = true;
-        break;
-      case 0xFC:  // Stop
-        midiTransportRunning = false;
-        break;
-    }
-    return;  // Real-time messages don't affect state machine
-  }
-
-  switch (currentMidiState) {
-    case WAITING_FOR_STATUS:
-      if ((incomingByte >= 128 && incomingByte <= 143) || (incomingByte >= 144 && incomingByte <= 159)) {
-        midiStatus = incomingByte;
-        currentMidiState = WAITING_FOR_DATA1;
-      }
-      break;
-
-    case WAITING_FOR_DATA1:
-      midiData1 = incomingByte;
-      currentMidiState = WAITING_FOR_DATA2;
-      break;
-
-    case WAITING_FOR_DATA2:
-      midiData2 = incomingByte;
-      midiMessageReady = true;
-      currentMidiState = WAITING_FOR_STATUS;
-      break;
-  }
+  // No longer used - MIDI is polled in updateMIDI() for better clock handling
+  // Keep function to avoid removing interrupt attachment
 }
