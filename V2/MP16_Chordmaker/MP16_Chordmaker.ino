@@ -577,12 +577,7 @@ void processButtonPresses() {
       encoderValue = 0;
     }
 
-    // Exit settings when shift released
-    if (!shiftState && previousShiftState) {
-      saveSettings();
-      loadCurrentMode();
-      state.inSettingsMode = false;
-    }
+    // Settings menu stays open until Shift+3 is pressed again (handled at top of function)
     return;
   }
 
