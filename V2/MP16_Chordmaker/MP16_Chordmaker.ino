@@ -430,13 +430,11 @@ void processButtonPresses() {
   if (state.inArpSettings) {
     const int maxArpPages = 6;
 
-    // Encoder click cycles through arp settings pages
+    // Encoder click cycles through arp settings pages (wraps around, only Shift+7 exits)
     if (encoderState && !previousEncoderState) {
       state.arpSettingsPage++;
       if (state.arpSettingsPage > maxArpPages) {
-        saveSettings();
-        state.inArpSettings = false;
-        state.arpSettingsPage = 0;
+        state.arpSettingsPage = 0;  // Wrap around, don't exit
       }
     }
 
@@ -490,14 +488,12 @@ void processButtonPresses() {
   if (state.inSettingsMode) {
     int maxPages = (settings.playMode == 0) ? 4 : 3;
 
-    // Encoder click cycles through settings pages or exits
+    // Encoder click cycles through settings pages (wraps around, only Shift+3 exits)
     if (encoderState && !previousEncoderState) {
       state.settingsPage++;
       if (state.settingsPage > maxPages) {
-        saveSettings();
-        loadCurrentMode();
-        state.inSettingsMode = false;
-        state.settingsPage = 0;
+        state.settingsPage = 0;  // Wrap around, don't exit
+        loadCurrentMode();  // Reload in case settings changed
       }
     }
 
