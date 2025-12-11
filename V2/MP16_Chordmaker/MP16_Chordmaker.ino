@@ -102,7 +102,7 @@ int noteCountD[128] = {0};
 // V2 Settings
 struct SettingsV2 {
   int rootNote = 48;              // C3
-  int scaleType = 0;              // Scale type for SCALE mode (0=Major, 1=Minor, etc.)
+  int scaleType = 0;              // Scale type (0=Major, 1=Minor, etc.)
   int midiTrigChannel = 1;
   int midiOutputAChannel = 15;    // Default channel 16 (0-indexed = 15)
   int midiOutputBChannel = 15;
@@ -112,9 +112,7 @@ struct SettingsV2 {
   float velocityScaling = 1.0;
   int defaultVelocity = 100;
   int ledBrightness = 100;
-  int playMode = 0;               // 0 = SCALE mode (user sets root/scale), 1 = PRESET mode (jazz, pop, etc.)
   bool midiClockSync = true;      // Sync arp to external MIDI clock (default ON)
-  int presetBank = 0;             // Current preset bank for PRESET mode (0-5)
   int internalBpm = 120;          // Internal BPM when not receiving external clock (20-300)
   // Arp settings
   int arpPattern = 0;             // 0=straight, 1=swing, 2=dotted, 3=triplet, 4=humanize, 5=stutter
@@ -154,15 +152,13 @@ struct RuntimeState {
   int activePad = -1;             // Currently playing pad (-1 = none)
   bool introComplete = false;
   bool inSettingsMode = false;    // Settings mode (toggle with button 3)
+  bool settingsEditing = false;   // True when editing a value in settings
   bool inArpSettings = false;     // Arp settings mode (toggle with button 11)
   bool inMaxNotesMenu = false;    // Max notes menu (toggle with Shift+7)
-  int settingsPage = 0;           // Settings page index
+  int settingsPage = 0;           // Settings menu item index
   int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave
   bool holdMode = false;          // HOLD mode - sustain notes after releasing pad
 };
-
-// Play mode names
-const char* playModeNames[2] = {"SCALE", "PRESET"};
 
 // MIDI Clock state
 volatile bool midiClockReceived = false;    // Flag set by interrupt when clock pulse received
@@ -417,6 +413,7 @@ void processButtonPresses() {
     }
     state.inSettingsMode = !state.inSettingsMode;
     state.settingsPage = 0;
+    state.settingsEditing = false;  // Reset editing state
     if (!state.inSettingsMode) {
       saveSettings();
     }
@@ -446,16 +443,11 @@ void processButtonPresses() {
     } else {
       // Just 7 = toggle HOLD mode
       state.holdMode = !state.holdMode;
-      // If turning off hold, stop any sustained notes immediately
-      if (!state.holdMode && state.activePad >= 0) {
-        if (state.arpRate > 0) {
-          stopCurrentArpNote();
-        }
-        stopChord(state.activePad);
-        // Only clear activePad if pad is not physically pressed
-        if (!padStates[state.activePad]) {
-          state.activePad = -1;
-        }
+      // If turning off hold, stop ALL notes immediately
+      if (!state.holdMode) {
+        stopCurrentArpNote();
+        killAllNotes();
+        state.activePad = -1;
       }
     }
   }
@@ -465,9 +457,9 @@ void processButtonPresses() {
     if (encoderValue != 0) {
       int oldMax = settings.maxNotesPerChord;
       if (encoderValue > 0) {
-        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord + 1, 1, 8);
+        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord + 1, 1, 4);
       } else {
-        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord - 1, 1, 8);
+        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord - 1, 1, 4);
       }
       // If playing and changed, restart chord with new note count
       if (state.activePad >= 0 && settings.maxNotesPerChord != oldMax) {
@@ -540,121 +532,120 @@ void processButtonPresses() {
     // DON'T return - allow chord pads to work while in arp settings!
   }
 
-  // Handle main settings mode
-  // SCALE mode pages: 0=Mode, 1=Root, 2=Scale, 3=Channel, 4=Clock
-  // PRESET mode pages: 0=Mode, 1=Bank, 2=Channel, 3=Clock
+  // Handle main settings mode - 8-bit game style vertical menu
+  // Items: 0=Channel, 1=BPM, 2=Clock Sync
+  #define NUM_SETTINGS_ITEMS 3
   if (state.inSettingsMode) {
-    // Pages: 0=Mode, 1=Channel, 2=BPM (same for both modes now)
-    int maxPages = 2;
 
-    // Encoder click cycles through settings pages (wraps around, only Shift+3 exits)
-    if (encoderState && !previousEncoderState) {
-      state.settingsPage++;
-      if (state.settingsPage > maxPages) {
-        state.settingsPage = 0;  // Wrap around, don't exit
-        loadCurrentMode();  // Reload in case settings changed
+    if (state.settingsEditing) {
+      // EDITING MODE - encoder changes value, click exits edit
+      if (encoderState && !previousEncoderState) {
+        // Click = exit editing mode
+        state.settingsEditing = false;
+        saveSettings();
       }
-    }
 
-    // Encoder rotation changes current setting
-    if (encoderValue != 0) {
-      switch (state.settingsPage) {
-        case 0:  // Play Mode
-          settings.playMode = 1 - settings.playMode;  // Toggle 0/1
-          state.settingsPage = 0;  // Reset to show new mode's settings
-          loadCurrentMode();
-          break;
-        case 1:  // MIDI Channel
-          if (encoderValue > 0) {
-            settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
-          } else {
-            settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
-          }
-          break;
-        case 2:  // BPM (only editable when no external clock)
-          if (!externalClockActive) {
+      // Encoder changes the selected setting's value
+      if (encoderValue != 0) {
+        switch (state.settingsPage) {
+          case 0:  // MIDI Channel (1-16)
             if (encoderValue > 0) {
-              settings.internalBpm = constrain(settings.internalBpm + 1, 20, 300);
+              settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
             } else {
-              settings.internalBpm = constrain(settings.internalBpm - 1, 20, 300);
+              settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
             }
-          }
-          break;
+            break;
+          case 1:  // BPM (only editable when no external clock)
+            if (!externalClockActive) {
+              if (encoderValue > 0) {
+                settings.internalBpm = constrain(settings.internalBpm + 1, 20, 300);
+              } else {
+                settings.internalBpm = constrain(settings.internalBpm - 1, 20, 300);
+              }
+            }
+            break;
+          case 2:  // Clock Sync ON/OFF
+            settings.midiClockSync = !settings.midiClockSync;
+            break;
+        }
+        encoderValue = 0;
       }
-      encoderValue = 0;
+    } else {
+      // NAVIGATION MODE - encoder scrolls menu, click enters edit
+      if (encoderState && !previousEncoderState) {
+        // Click = enter editing mode for current item
+        state.settingsEditing = true;
+      }
+
+      // Encoder scrolls through menu items
+      if (encoderValue != 0) {
+        if (encoderValue > 0) {
+          state.settingsPage = (state.settingsPage + 1) % NUM_SETTINGS_ITEMS;
+        } else {
+          state.settingsPage = (state.settingsPage + NUM_SETTINGS_ITEMS - 1) % NUM_SETTINGS_ITEMS;
+        }
+        encoderValue = 0;
+      }
     }
 
-    // Settings menu stays open until Shift+3 is pressed again (handled at top of function)
+    // Settings menu stays open until button 3 is pressed again
     return;
   }
 
-  // Encoder changes root note (works while playing too for live transposition!)
-  if (!state.inEditMode && !state.inSettingsMode && !state.inArpSettings) {
+  // Encoder changes root note or scale (works while playing too for live transposition!)
+  if (!state.inEditMode && !state.inSettingsMode && !state.inArpSettings && !state.inMaxNotesMenu) {
     if (encoderValue != 0) {
-      if (settings.playMode == 0) {
-        // SCALE mode: Shift+encoder = change scale, encoder alone = change root
-        if (shiftState) {
-          // Shift+encoder: change scale type
-          int oldScale = settings.scaleType;
-          if (encoderValue > 0) {
-            settings.scaleType = (settings.scaleType + 1) % NUM_SCALES;
-          } else {
-            settings.scaleType = (settings.scaleType + NUM_SCALES - 1) % NUM_SCALES;
+      // Shift+encoder = change scale, encoder alone = change root
+      if (shiftState) {
+        // Shift+encoder: change scale type
+        int oldScale = settings.scaleType;
+        if (encoderValue > 0) {
+          settings.scaleType = (settings.scaleType + 1) % NUM_SCALES;
+        } else {
+          settings.scaleType = (settings.scaleType + NUM_SCALES - 1) % NUM_SCALES;
+        }
+        // If playing, update live
+        if (state.activePad >= 0 && settings.scaleType != oldScale) {
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
           }
-          // If playing, update live
-          if (state.activePad >= 0 && settings.scaleType != oldScale) {
-            if (state.arpRate > 0) {
-              stopCurrentArpNote();
-            }
-            stopChord(state.activePad);
-            loadScaleMode();
-            if (state.arpRate == 0) {
-              playChord(state.activePad);
-            }
-          } else {
-            loadCurrentMode();
+          stopChord(state.activePad);
+          loadScaleMode();
+          if (state.arpRate == 0) {
+            playChord(state.activePad);
           }
         } else {
-          // Encoder alone: change root note (live!)
-          int oldRoot = settings.rootNote;
-          if (encoderValue > 0) {
-            settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
-          } else {
-            settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
-          }
-
-          // If playing, transpose live: stop old notes, play new
-          if (state.activePad >= 0 && settings.rootNote != oldRoot) {
-            // Stop any arp note first (uses stored MIDI note, no recalc needed)
-            if (state.arpRate > 0) {
-              stopCurrentArpNote();
-            }
-
-            // Stop current chord with old root
-            int tempRoot = settings.rootNote;
-            settings.rootNote = oldRoot;
-            stopChord(state.activePad);
-            settings.rootNote = tempRoot;
-
-            // Play chord with new root (arp will pick up on next tick)
-            loadScaleMode();  // Regenerate chord offsets
-            if (state.arpRate == 0) {
-              playChord(state.activePad);
-            }
-            // If arp is on, don't play chord - let arp handle it
-          } else {
-            loadCurrentMode();
-          }
+          loadScaleMode();
         }
       } else {
-        // PRESET mode: encoder changes preset bank (only when idle)
-        if (state.activePad < 0) {
-          if (encoderValue > 0) {
-            settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
-          } else {
-            settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
+        // Encoder alone: change root note (live!)
+        int oldRoot = settings.rootNote;
+        if (encoderValue > 0) {
+          settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
+        } else {
+          settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
+        }
+
+        // If playing, transpose live: stop old notes, play new
+        if (state.activePad >= 0 && settings.rootNote != oldRoot) {
+          // Stop any arp note first (uses stored MIDI note, no recalc needed)
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
           }
-          loadCurrentMode();
+
+          // Stop current chord with old root
+          int tempRoot = settings.rootNote;
+          settings.rootNote = oldRoot;
+          stopChord(state.activePad);
+          settings.rootNote = tempRoot;
+
+          // Play chord with new root (arp will pick up on next tick)
+          loadScaleMode();  // Regenerate chord offsets
+          if (state.arpRate == 0) {
+            playChord(state.activePad);
+          }
+        } else {
+          loadScaleMode();
         }
       }
       encoderValue = 0;
@@ -1053,8 +1044,9 @@ void updateArpeggiator() {
       }
     }
   } else {
-    // Internal timing
-    int baseInterval = arpTimings[state.arpRate];
+    // Internal timing - calculate based on internal BPM
+    // arpTimings are for 120 BPM, scale to current internal BPM
+    int baseInterval = arpTimings[state.arpRate] * 120 / settings.internalBpm;
     int interval = getPatternInterval(baseInterval);
 
     if (currentTime - state.lastArpTime >= interval) {
@@ -1614,16 +1606,16 @@ void drawMaxNotesScreen() {
   display.setCursor(52, 18);
   display.print(settings.maxNotesPerChord);
 
-  // Visual indicator - dots showing max notes
+  // Visual indicator - dots showing max notes (max 4)
   display.setTextSize(1);
   int dotY = 54;
-  int startX = 64 - (settings.maxNotesPerChord * 8 / 2);
+  int startX = 64 - (4 * 10 / 2);  // Center 4 dots
   for (int i = 0; i < settings.maxNotesPerChord; i++) {
-    display.fillCircle(startX + i * 8, dotY, 3, WHITE);
+    display.fillCircle(startX + i * 10, dotY, 4, WHITE);
   }
-  // Show empty slots
-  for (int i = settings.maxNotesPerChord; i < 8; i++) {
-    display.drawCircle(startX + i * 8, dotY, 3, WHITE);
+  // Show empty slots (max 4)
+  for (int i = settings.maxNotesPerChord; i < 4; i++) {
+    display.drawCircle(startX + i * 10, dotY, 4, WHITE);
   }
 }
 
@@ -1703,13 +1695,9 @@ void drawMainScreen() {
     display.setCursor(0, 0);
     display.print(midiNoteNames[settings.rootNote]);
 
-    // Top-center: chord/scale info
+    // Top-center: scale info
     display.setCursor(40, 0);
-    if (settings.playMode == 1) {
-      display.print(presetBankInfo[settings.presetBank].chordNames[state.activePad]);
-    } else {
-      display.print(scaleNames[settings.scaleType]);
-    }
+    display.print(scaleNames[settings.scaleType]);
 
     // Top-right: pad number
     display.setCursor(116, 0);
@@ -1755,50 +1743,30 @@ void drawMainScreen() {
   } else {
     // IDLE state - clean minimal design
 
-    // Top bar: mode indicator + clock pulse
-    display.setTextSize(1);
-    display.setCursor(0, 0);
-    display.print(settings.playMode == 1 ? "PRE" : "SCL");
-
-    // Clock indicator dot (blinks on beat)
+    // Clock indicator dot (top right, blinks on beat)
     if (settings.midiClockSync) {
       if (clockPulseIndicator && (millis() - lastClockPulseTime < 100)) {
-        // Filled dot when receiving clock pulse
         display.fillCircle(122, 4, 4, WHITE);
       } else if (externalClockActive) {
-        // Hollow dot when clock active but not on beat
         display.drawCircle(122, 4, 4, WHITE);
       } else {
-        // Small dot waiting for clock
         display.drawCircle(122, 4, 2, WHITE);
       }
     }
 
-    // Main content area - centered
-    if (settings.playMode == 1) {
-      // PRESET mode - bank name centered
-      display.setTextSize(2);
-      const char* bankName = presetBankInfo[settings.presetBank].name;
-      int nameLen = strlen(bankName);
-      int xPos = 64 - (nameLen * 6);  // Center the text
-      display.setCursor(xPos, 18);
-      display.print(bankName);
+    // Main content - Root + Scale centered
+    display.setTextSize(2);
 
-    } else {
-      // SCALE mode - root + scale on same line, centered
-      display.setTextSize(2);
+    // Build display string: "C4 Maj" or "F#3 Min"
+    char displayStr[16];
+    snprintf(displayStr, sizeof(displayStr), "%s %s",
+             midiNoteNames[settings.rootNote],
+             scaleNames[settings.scaleType]);
 
-      // Build display string: "C4 Maj" or "F#3 Min"
-      char displayStr[16];
-      snprintf(displayStr, sizeof(displayStr), "%s %s",
-               midiNoteNames[settings.rootNote],
-               scaleNames[settings.scaleType]);
-
-      int strLen = strlen(displayStr);
-      int xPos = max(0, 64 - (strLen * 6));
-      display.setCursor(xPos, 18);
-      display.print(displayStr);
-    }
+    int strLen = strlen(displayStr);
+    int xPos = max(0, 64 - (strLen * 6));
+    display.setCursor(xPos, 18);
+    display.print(displayStr);
 
     // Bottom bar: compact status
     display.setTextSize(1);
@@ -1891,73 +1859,68 @@ void drawEditScreen() {
 }
 
 void drawSettingsScreen() {
-  int maxPages = 3;  // Mode, Channel, BPM
+  // Single-item marquee style settings menu
+  // Items: Channel, BPM, Clock Sync
+  // Scroll to change item, click to edit value, click to exit edit
 
-  // Page indicator dots at top
-  for (int i = 0; i < maxPages; i++) {
-    int x = 64 - ((maxPages * 6) / 2) + (i * 12);
-    if (i == state.settingsPage) {
-      display.fillCircle(x, 4, 3, WHITE);
-    } else {
-      display.drawCircle(x, 4, 2, WHITE);
+  const char* menuItems[3] = {"CHANNEL", "BPM", "SYNC"};
+  char valueStr[16];
+
+  // Get current item's value
+  switch (state.settingsPage) {
+    case 0:  // Channel
+      snprintf(valueStr, sizeof(valueStr), "%d", settings.midiOutputAChannel + 1);
+      break;
+    case 1:  // BPM
+      if (externalClockActive) {
+        snprintf(valueStr, sizeof(valueStr), "%d*", detectedBpm);
+      } else {
+        snprintf(valueStr, sizeof(valueStr), "%d", settings.internalBpm);
+      }
+      break;
+    case 2:  // Clock Sync
+      snprintf(valueStr, sizeof(valueStr), "%s", settings.midiClockSync ? "ON" : "OFF");
+      break;
+  }
+
+  // Label at top (small)
+  display.setTextSize(1);
+  int labelLen = strlen(menuItems[state.settingsPage]);
+  int labelX = 64 - (labelLen * 3);
+  display.setCursor(labelX, 8);
+  display.print(menuItems[state.settingsPage]);
+
+  // Value in center (BIG)
+  display.setTextSize(3);
+  int valLen = strlen(valueStr);
+  int valX = 64 - (valLen * 9);
+  display.setCursor(valX, 24);
+  display.print(valueStr);
+
+  // Editing indicator - brackets around value when editing
+  if (state.settingsEditing) {
+    // Flashing brackets
+    if ((millis() / 300) % 2) {
+      display.setTextSize(3);
+      display.setCursor(valX - 18, 24);
+      display.print("<");
+      display.setCursor(valX + (valLen * 18), 24);
+      display.print(">");
     }
   }
 
-  // Animated arrows
-  int arrowOffset = (millis() / 200) % 2;
-  display.fillTriangle(8, 32, 16 + arrowOffset, 24, 16 + arrowOffset, 40, WHITE);
-  display.fillTriangle(120, 32, 112 - arrowOffset, 24, 112 - arrowOffset, 40, WHITE);
-
-  const char* label = "";
-
-  // Pages: 0=Mode, 1=Channel, 2=BPM (same for both modes)
-  switch (state.settingsPage) {
-    case 0:  // Play Mode
-      display.setTextSize(2);
-      display.setCursor(settings.playMode == 0 ? 20 : 16, 20);
-      display.print(settings.playMode == 0 ? "SCALE" : "PRESET");
-      label = "PLAY MODE";
-      break;
-    case 1:  // MIDI Channel
-      display.setTextSize(4);
-      display.setCursor((settings.midiOutputAChannel + 1 < 10) ? 52 : 36, 18);
-      display.print(settings.midiOutputAChannel + 1);
-      label = "MIDI CHANNEL";
-      break;
-    case 2:  // BPM
-      {
-        int displayBpm = externalClockActive ? detectedBpm : settings.internalBpm;
-        display.setTextSize(3);
-        int xPos = (displayBpm >= 100) ? 28 : 40;
-        display.setCursor(xPos, 16);
-        display.print(displayBpm);
-
-        // Clock indicator dot (shows sync status)
-        if (externalClockActive) {
-          // Pulsing dot for external clock
-          if (clockPulseIndicator && (millis() - lastClockPulseTime < 100)) {
-            display.fillCircle(110, 24, 6, WHITE);
-          } else {
-            display.drawCircle(110, 24, 6, WHITE);
-          }
-          label = "BPM (SYNC)";
-        } else {
-          // Small dot for internal
-          display.fillCircle(110, 24, 3, WHITE);
-          label = "BPM (INT)";
-        }
-      }
-      break;
+  // Page dots at bottom (shows which setting)
+  int dotY = 56;
+  int dotSpacing = 12;
+  int dotsStartX = 64 - (3 * dotSpacing / 2) + 6;
+  for (int i = 0; i < 3; i++) {
+    int x = dotsStartX + (i * dotSpacing);
+    if (i == state.settingsPage) {
+      display.fillCircle(x, dotY, 4, WHITE);
+    } else {
+      display.drawCircle(x, dotY, 3, WHITE);
+    }
   }
-
-  // Bottom label
-  display.fillRect(0, 56, 128, 8, WHITE);
-  display.setTextColor(BLACK);
-  display.setTextSize(1);
-  int labelLen = strlen(label);
-  display.setCursor(64 - (labelLen * 3), 57);
-  display.print(label);
-  display.setTextColor(WHITE);
 }
 
 //================================ STORAGE ================================
@@ -1979,35 +1942,12 @@ void saveSettings() {
 }
 
 void initPadsFromPreset() {
-  loadCurrentMode();
+  loadScaleMode();
 }
 
 void loadCurrentMode() {
-  if (settings.playMode == 0) {
-    // SCALE mode - generate diatonic chords from root + scale
-    loadScaleMode();
-  } else {
-    // PRESET mode - load preset bank
-    loadPresetBank();
-  }
-}
-
-void loadPresetBank() {
-  // Constrain bank to valid range
-  settings.presetBank = constrain(settings.presetBank, 0, NUM_PRESET_BANKS - 1);
-
-  // Get pointer to selected bank
-  const ChordV2* bank = presetBanks[settings.presetBank];
-
-  for (int i = 0; i < 9; i++) {
-    pads[i].color = padColors[i];
-    pads[i].triggerNote = settings.rootNote + i;
-    pads[i].velocity = 100;
-    pads[i].velocityVariation = 0;
-
-    // Copy chord from selected bank
-    pads[i].chord = bank[i];
-  }
+  // Always use SCALE mode - generate diatonic chords from root + scale
+  loadScaleMode();
 }
 
 void loadScaleMode() {
