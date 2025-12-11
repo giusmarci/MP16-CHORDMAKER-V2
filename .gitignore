@@ -1,0 +1,18 @@
+# Claude files
+CLAUDE.md
+
+# Arduino build files
+*.elf
+*.bin
+*.hex
+*.map
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.swp
+*.swo
