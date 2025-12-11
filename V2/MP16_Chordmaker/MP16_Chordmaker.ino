@@ -952,6 +952,7 @@ int getPatternInterval(int baseInterval) {
 }
 
 // Get pattern delay for external clock (applied after clock trigger)
+// Returns delay in ms, or -1 to skip this trigger (for dotted pattern)
 int getPatternDelay() {
   int step = state.arpStepInPattern % 4;
 
@@ -965,12 +966,25 @@ int getPatternDelay() {
         return (settings.arpSwing - 50) * baseTime / 100;
       }
       return 0;
+    case 2: // Dotted - skip every other trigger (creates long notes)
+      if (step % 2 == 1) {
+        return -1;  // Skip this trigger
+      }
+      return 0;
+    case 3: // Triplet - slight early trigger for swing feel
+      return 0;  // Triplets mainly affect internal timing
     case 4: // Humanize - random delay
       return random(0, settings.arpHumanize + 1);
+    case 5: // Stutter - no delay on first hit
+      return 0;
     default:
       return 0;
   }
 }
+
+// Stutter pattern state
+unsigned long stutterRepeatTime = 0;
+bool stutterPending = false;
 
 // Track last clock position we triggered on (for proper grid sync)
 int lastArpTriggerClock = -1;
@@ -1047,10 +1061,21 @@ void updateArpeggiator() {
     shouldTrigger = true;
   }
 
-  if (externalClockActive && !hasPendingTrigger) {
+  // Check for stutter repeat (quick second hit)
+  if (stutterPending && currentTime >= stutterRepeatTime) {
+    stutterPending = false;
+    shouldTrigger = true;
+  }
+
+  if (externalClockActive && !hasPendingTrigger && !stutterPending) {
     // QUANTIZED clock sync: trigger on clock grid positions
     // Use global midiClockCounter to stay locked to transport
     int divider = clockDividers[state.arpRate];
+
+    // Adjust divider for triplet pattern (2/3 speed = more triggers)
+    if (settings.arpPattern == 3) {
+      divider = max(1, divider * 2 / 3);
+    }
 
     if (divider > 0) {
       // Calculate which "slot" we're on in the clock grid
@@ -1061,18 +1086,27 @@ void updateArpeggiator() {
       if (currentSlot != lastSlot || lastArpTriggerClock < 0) {
         lastArpTriggerClock = midiClockCounter;
 
-        // Apply pattern delay (swing/humanize)
+        // Apply pattern delay (swing/humanize/dotted)
         int patternDelay = getPatternDelay();
-        if (patternDelay > 0) {
+        if (patternDelay == -1) {
+          // Skip this trigger (dotted pattern)
+          state.arpStepInPattern++;  // Still count the step
+        } else if (patternDelay > 0) {
           // Schedule delayed trigger
           pendingTriggerTime = currentTime + patternDelay;
           hasPendingTrigger = true;
         } else {
           shouldTrigger = true;
+          // Schedule stutter repeat if stutter pattern
+          if (settings.arpPattern == 5 && (state.arpStepInPattern % 2 == 0)) {
+            int baseTime = 250 * 120 / max(1, detectedBpm);
+            stutterRepeatTime = currentTime + baseTime / 4;  // Quick repeat
+            stutterPending = true;
+          }
         }
       }
     }
-  } else if (!externalClockActive && !hasPendingTrigger) {
+  } else if (!externalClockActive && !hasPendingTrigger && !stutterPending) {
     // Internal timing - calculate based on internal BPM
     // arpTimings are for 120 BPM, scale to current internal BPM
     int baseInterval = arpTimings[state.arpRate] * 120 / settings.internalBpm;
@@ -1311,8 +1345,9 @@ void stopCurrentArpNote() {
     lastArpNoteIndex = -1;
     lastArpNoteMidi = -1;
   }
-  // Clear any pending delayed trigger
+  // Clear any pending triggers
   hasPendingTrigger = false;
+  stutterPending = false;
   arpGateOpen = false;
 }
 
@@ -1467,12 +1502,19 @@ void killAllNotes() {
 
 //================================ VISUALS ================================
 
+// Idle brightness levels (very dim)
+#define IDLE_DIM 0.03          // Very dim for idle pads
+#define IDLE_CONTROL_DIM 0.05  // Slightly visible for control buttons
+#define ACTIVE_BRIGHT 1.0      // Full brightness when pressed/active
+
 void updateVisuals() {
   pixels.clear();
 
   // Shift key LED (pixel 0)
   if (shiftState) {
     pixels.setPixelColor(0, COLOR_SHIFT);
+  } else {
+    pixels.setPixelColor(0, dimColor(COLOR_SHIFT, IDLE_DIM));
   }
 
   // Chord pad LEDs - map to physical button positions
@@ -1484,11 +1526,14 @@ void updateVisuals() {
     uint32_t color;
 
     if (padStates[i] || (state.activePad == i && state.arpRate > 0)) {
-      // Playing
+      // Playing - full brightness white
       color = COLOR_PLAYING;
+    } else if (state.activePad == i && state.holdMode) {
+      // Held note - show pad color at medium brightness
+      color = dimColor(padColors[i], 0.5);
     } else {
-      // Idle - show pad color
-      color = padColors[i];
+      // Idle - very dim
+      color = dimColor(padColors[i], IDLE_DIM);
     }
 
     pixels.setPixelColor(pixelIndex, color);
@@ -1500,7 +1545,7 @@ void updateVisuals() {
     float blink = ((millis() / 150) % 2) ? 1.0 : 0.4;
     pixels.setPixelColor(4, dimColor(0xFFFF00, blink));  // Yellow hard blink
   } else {
-    pixels.setPixelColor(4, dimColor(0xFFFF00, 0.15));  // Dim yellow
+    pixels.setPixelColor(4, dimColor(0xFFFF00, IDLE_CONTROL_DIM));  // Very dim yellow
   }
 
   // Button 7 = HOLD toggle (MAGENTA - fastest blink when active)
@@ -1508,7 +1553,7 @@ void updateVisuals() {
     float blink = ((millis() / 100) % 2) ? 1.0 : 0.5;
     pixels.setPixelColor(8, dimColor(0xFF00FF, blink));  // Magenta hard blink
   } else {
-    pixels.setPixelColor(8, dimColor(0xFF00FF, 0.15));  // Dim magenta
+    pixels.setPixelColor(8, dimColor(0xFF00FF, IDLE_CONTROL_DIM));  // Very dim magenta
   }
 
   // Button 11 = arp settings toggle (CYAN - medium blink when active)
@@ -1516,26 +1561,38 @@ void updateVisuals() {
     float blink = ((millis() / 200) % 2) ? 1.0 : 0.4;
     pixels.setPixelColor(12, dimColor(0x00FFFF, blink));  // Cyan hard blink
   } else {
-    pixels.setPixelColor(12, dimColor(0x00FFFF, 0.15));  // Dim cyan
+    pixels.setPixelColor(12, dimColor(0x00FFFF, IDLE_CONTROL_DIM));  // Very dim cyan
   }
 
   // Bottom row controls
   // Octave buttons (12, 13) -> pixels 13, 14
-  uint32_t octDownColor = (state.currentOctave > -3) ? COLOR_OCTAVE : dimColor(COLOR_OCTAVE, 0.1);
-  uint32_t octUpColor = (state.currentOctave < 3) ? COLOR_OCTAVE : dimColor(COLOR_OCTAVE, 0.1);
+  bool octDownPressed = keyStates[BTN_OCT_DOWN];
+  bool octUpPressed = keyStates[BTN_OCT_UP];
+  uint32_t octDownColor = octDownPressed ? COLOR_OCTAVE : dimColor(COLOR_OCTAVE, IDLE_CONTROL_DIM);
+  uint32_t octUpColor = octUpPressed ? COLOR_OCTAVE : dimColor(COLOR_OCTAVE, IDLE_CONTROL_DIM);
+  // Dim further if at limit
+  if (state.currentOctave <= -3) octDownColor = dimColor(COLOR_OCTAVE, IDLE_DIM);
+  if (state.currentOctave >= 3) octUpColor = dimColor(COLOR_OCTAVE, IDLE_DIM);
   pixels.setPixelColor(13, octDownColor);  // Oct-
   pixels.setPixelColor(14, octUpColor);    // Oct+
 
   // Arp buttons (14, 15) -> pixels 15, 16
-  uint32_t arpColor;
+  bool arpDownPressed = keyStates[BTN_ARP_DOWN];
+  bool arpUpPressed = keyStates[BTN_ARP_UP];
+  uint32_t arpDownColor, arpUpColor;
+
   if (state.arpRate > 0) {
-    float brightness = 0.3 + (state.arpRate / 6.0) * 0.7;
-    arpColor = dimColor(COLOR_ARP, brightness);
+    // Arp active - show brightness based on rate
+    float brightness = 0.2 + (state.arpRate / 6.0) * 0.8;
+    arpDownColor = arpDownPressed ? COLOR_ARP : dimColor(COLOR_ARP, brightness);
+    arpUpColor = arpUpPressed ? COLOR_ARP : dimColor(COLOR_ARP, brightness);
   } else {
-    arpColor = dimColor(COLOR_ARP, 0.2);
+    // Arp off - very dim unless pressed
+    arpDownColor = arpDownPressed ? COLOR_ARP : dimColor(COLOR_ARP, IDLE_CONTROL_DIM);
+    arpUpColor = arpUpPressed ? COLOR_ARP : dimColor(COLOR_ARP, IDLE_CONTROL_DIM);
   }
-  pixels.setPixelColor(15, arpColor);  // Arp-
-  pixels.setPixelColor(16, arpColor);  // Arp+
+  pixels.setPixelColor(15, arpDownColor);  // Arp-
+  pixels.setPixelColor(16, arpUpColor);    // Arp+
 
   pixels.show();
 }
