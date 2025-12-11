@@ -151,6 +151,7 @@ struct RuntimeState {
   bool inSettingsMode = false;    // Settings mode (toggle with button 3)
   bool settingsEditing = false;   // True when editing a value in settings
   bool inArpSettings = false;     // Arp settings mode (toggle with button 11)
+  bool arpSettingsEditing = false; // True when editing a value in arp settings
   bool inMaxNotesMenu = false;    // Max notes menu (toggle with Shift+7)
   int settingsPage = 0;           // Settings menu item index
   int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave
@@ -425,6 +426,7 @@ void processButtonPresses() {
     }
     state.inArpSettings = !state.inArpSettings;
     state.arpSettingsPage = 0;
+    state.arpSettingsEditing = false;  // Reset editing state
     if (!state.inArpSettings) {
       saveSettings();
     }
@@ -472,59 +474,67 @@ void processButtonPresses() {
     }
   }
 
-  // Handle arp settings mode (Shift+7)
+  // Handle arp settings mode
   // Pages: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=VelVar, 5=Octave, 6=Mode
+  // Click to edit, click to exit edit (same as main settings)
+  #define NUM_ARP_SETTINGS_ITEMS 7
   if (state.inArpSettings) {
-    const int maxArpPages = 6;
-
-    // Encoder click cycles through arp settings pages (wraps around, only Shift+7 exits)
-    if (encoderState && !previousEncoderState) {
-      state.arpSettingsPage++;
-      if (state.arpSettingsPage > maxArpPages) {
-        state.arpSettingsPage = 0;  // Wrap around, don't exit
+    if (state.arpSettingsEditing) {
+      // EDITING MODE - encoder changes value, click exits edit
+      if (encoderState && !previousEncoderState) {
+        state.arpSettingsEditing = false;
+        saveSettings();
+      }
+      // Encoder changes the selected setting's value
+      if (encoderValue != 0) {
+        switch (state.arpSettingsPage) {
+          case 0: // Pattern
+            if (encoderValue > 0) {
+              settings.arpPattern = (settings.arpPattern + 1) % NUM_ARP_PATTERNS;
+            } else {
+              settings.arpPattern = (settings.arpPattern + NUM_ARP_PATTERNS - 1) % NUM_ARP_PATTERNS;
+            }
+            break;
+          case 1: // Gate
+            settings.arpGate = constrain(settings.arpGate + (encoderValue > 0 ? 5 : -5), 10, 100);
+            break;
+          case 2: // Swing
+            settings.arpSwing = constrain(settings.arpSwing + (encoderValue > 0 ? 5 : -5), 0, 100);
+            break;
+          case 3: // Humanize
+            settings.arpHumanize = constrain(settings.arpHumanize + (encoderValue > 0 ? 5 : -5), 0, 50);
+            break;
+          case 4: // Velocity Variation
+            settings.arpVelocityVar = constrain(settings.arpVelocityVar + (encoderValue > 0 ? 5 : -5), 0, 50);
+            break;
+          case 5: // Octave Range
+            if (encoderValue > 0) {
+              settings.arpOctaveRange = (settings.arpOctaveRange + 1) % NUM_ARP_OCTAVES;
+            } else {
+              settings.arpOctaveRange = (settings.arpOctaveRange + NUM_ARP_OCTAVES - 1) % NUM_ARP_OCTAVES;
+            }
+            break;
+          case 6: // Arp Mode (Up/Down/UpDown/Random)
+            if (encoderValue > 0) {
+              state.arpMode = (state.arpMode + 1) % NUM_ARP_MODES;
+            } else {
+              state.arpMode = (state.arpMode + NUM_ARP_MODES - 1) % NUM_ARP_MODES;
+            }
+            break;
+        }
+        encoderValue = 0;
+      }
+    } else {
+      // NAVIGATION MODE - encoder scrolls menu, click enters edit
+      if (encoderState && !previousEncoderState) {
+        state.arpSettingsEditing = true;
+      }
+      // Encoder scrolls through menu items
+      if (encoderValue != 0) {
+        state.arpSettingsPage = (state.arpSettingsPage + (encoderValue > 0 ? 1 : -1) + NUM_ARP_SETTINGS_ITEMS) % NUM_ARP_SETTINGS_ITEMS;
+        encoderValue = 0;
       }
     }
-
-    // Encoder rotation changes current arp setting
-    if (encoderValue != 0) {
-      switch (state.arpSettingsPage) {
-        case 0: // Pattern
-          if (encoderValue > 0) {
-            settings.arpPattern = (settings.arpPattern + 1) % NUM_ARP_PATTERNS;
-          } else {
-            settings.arpPattern = (settings.arpPattern + NUM_ARP_PATTERNS - 1) % NUM_ARP_PATTERNS;
-          }
-          break;
-        case 1: // Gate
-          settings.arpGate = constrain(settings.arpGate + (encoderValue > 0 ? 10 : -10), 10, 100);
-          break;
-        case 2: // Swing
-          settings.arpSwing = constrain(settings.arpSwing + (encoderValue > 0 ? 5 : -5), 0, 100);
-          break;
-        case 3: // Humanize
-          settings.arpHumanize = constrain(settings.arpHumanize + (encoderValue > 0 ? 5 : -5), 0, 50);
-          break;
-        case 4: // Velocity Variation
-          settings.arpVelocityVar = constrain(settings.arpVelocityVar + (encoderValue > 0 ? 5 : -5), 0, 50);
-          break;
-        case 5: // Octave Range
-          if (encoderValue > 0) {
-            settings.arpOctaveRange = (settings.arpOctaveRange + 1) % NUM_ARP_OCTAVES;
-          } else {
-            settings.arpOctaveRange = (settings.arpOctaveRange + NUM_ARP_OCTAVES - 1) % NUM_ARP_OCTAVES;
-          }
-          break;
-        case 6: // Arp Mode (Up/Down/UpDown/Random)
-          if (encoderValue > 0) {
-            state.arpMode = (state.arpMode + 1) % NUM_ARP_MODES;
-          } else {
-            state.arpMode = (state.arpMode + NUM_ARP_MODES - 1) % NUM_ARP_MODES;
-          }
-          break;
-      }
-      encoderValue = 0;
-    }
-
     previousEncoderState = encoderState;
     // DON'T return - allow chord pads to work while in arp settings!
   }
@@ -1513,12 +1523,24 @@ void drawArpSettingsScreen() {
   display.setCursor(labelX, 8);
   display.print(labels[state.arpSettingsPage]);
 
-  // Value in center (BIG)
-  display.setTextSize(3);
+  // Value in center (size 2 to fit longer text)
+  display.setTextSize(2);
   int valLen = strlen(valueStr);
-  int valX = 64 - (valLen * 9);
-  display.setCursor(valX, 24);
+  int valX = 64 - (valLen * 6);
+  display.setCursor(valX, 26);
   display.print(valueStr);
+
+  // Editing indicator - brackets around value when editing
+  if (state.arpSettingsEditing) {
+    // Flashing brackets
+    if ((millis() / 300) % 2) {
+      display.setTextSize(2);
+      display.setCursor(valX - 12, 26);
+      display.print("<");
+      display.setCursor(valX + (valLen * 12), 26);
+      display.print(">");
+    }
+  }
 
   // Page dots at bottom (shows which setting - 7 pages)
   int dotY = 56;
@@ -1535,116 +1557,27 @@ void drawArpSettingsScreen() {
 }
 
 void drawMaxNotesScreen() {
-  // Header with value
+  // Header
   display.setTextSize(1);
-  display.setCursor(40, 0);
+  display.setCursor(0, 0);
   display.print("MAX NOTES");
 
-  // Big number on right
-  display.setTextSize(3);
-  display.setCursor(100, 0);
+  // Big number in center
+  display.setTextSize(4);
+  display.setCursor(52, 18);
   display.print(settings.maxNotesPerChord);
 
-  // Show piano keyboard with active/inactive chord notes
-  // Get current chord (use pad 0 as reference, or activePad if playing)
-  int padIdx = (state.activePad >= 0) ? state.activePad : 0;
-  ChordV2& chord = pads[padIdx].chord;
-
-  // Count and collect all active note intervals
-  uint8_t allNotes[8];
-  uint8_t activeNotes[4];
-  int totalNotes = 0;
-  int shownNotes = 0;
-
-  for (int i = 0; i < 8; i++) {
-    if (chord.isActive[i]) {
-      int noteVal = (settings.rootNote + chord.rootOffset + chord.intervals[i]) % 12;
-      allNotes[totalNotes] = noteVal;
-      if (totalNotes < settings.maxNotesPerChord) {
-        activeNotes[shownNotes++] = noteVal;
-      }
-      totalNotes++;
-    }
-  }
-
-  // Draw piano keyboard
-  int startNote = (settings.rootNote / 12) * 12;
-  const int whiteKeyW = 16;
-  const int whiteKeyH = 34;
-  const int blackKeyW = 10;
-  const int blackKeyH = 20;
-  const int keyboardX = 8;
-  const int keyboardY = 22;
-
-  // Draw white keys (C D E F G A B)
-  int whiteKeyIndex = 0;
-  for (int note = 0; note < 12; note++) {
-    if (note == 0 || note == 2 || note == 4 || note == 5 || note == 7 || note == 9 || note == 11) {
-      int x = keyboardX + (whiteKeyIndex * whiteKeyW);
-
-      // Check if note is active (within max) or inactive (beyond max)
-      bool isActive = false;
-      bool isInactive = false;
-      for (int i = 0; i < shownNotes; i++) {
-        if (activeNotes[i] == note) isActive = true;
-      }
-      for (int i = shownNotes; i < totalNotes; i++) {
-        if (allNotes[i] == note) isInactive = true;
-      }
-
-      if (isActive) {
-        display.fillRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
-      } else if (isInactive) {
-        // Dimmed - dashed outline
-        display.drawRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
-        for (int dy = keyboardY + 2; dy < keyboardY + whiteKeyH - 2; dy += 4) {
-          display.drawPixel(x + whiteKeyW/2, dy, WHITE);
-        }
-      } else {
-        display.drawRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
-      }
-      whiteKeyIndex++;
-    }
-  }
-
-  // Draw black keys
-  const int blackKeyPositions[5] = {0, 1, 3, 4, 5};
-  const int blackNotes[5] = {1, 3, 6, 8, 10};
-
-  for (int i = 0; i < 5; i++) {
-    int x = keyboardX + (blackKeyPositions[i] * whiteKeyW) + whiteKeyW - (blackKeyW / 2);
-
-    bool isActive = false;
-    bool isInactive = false;
-    for (int j = 0; j < shownNotes; j++) {
-      if (activeNotes[j] == blackNotes[i]) isActive = true;
-    }
-    for (int j = shownNotes; j < totalNotes; j++) {
-      if (allNotes[j] == blackNotes[i]) isInactive = true;
-    }
-
-    if (isActive) {
-      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
-    } else if (isInactive) {
-      // Dimmed black key - dotted fill
-      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, BLACK);
-      display.drawRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
-      for (int dy = keyboardY + 2; dy < keyboardY + blackKeyH - 2; dy += 3) {
-        display.drawPixel(x + blackKeyW/2, dy, WHITE);
-      }
-    } else {
-      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, BLACK);
-      display.drawRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
-    }
-  }
-
-  // Bottom: show which notes are active vs cut off
+  // Visual indicator - dots showing max notes (max 4)
   display.setTextSize(1);
-  display.setCursor(0, 58);
-  display.print("Active:");
-  display.print(shownNotes);
-  display.print("/");
-  display.print(totalNotes);
+  int dotY = 54;
+  int startX = 64 - (4 * 10 / 2);  // Center 4 dots
+  for (int i = 0; i < settings.maxNotesPerChord; i++) {
+    display.fillCircle(startX + i * 10, dotY, 4, WHITE);
+  }
+  // Show empty slots (max 4)
+  for (int i = settings.maxNotesPerChord; i < 4; i++) {
+    display.drawCircle(startX + i * 10, dotY, 4, WHITE);
+  }
 }
 
 // Draw 8-bit piano keyboard with active notes highlighted (1 octave)
@@ -1713,6 +1646,81 @@ void drawPianoKeyboard(int baseNote, uint8_t* activeNotes, int numActive) {
   }
 }
 
+// Draw piano keyboard with active notes filled and inactive (beyond max) notes dimmed
+void drawPianoKeyboardWithDimmed(int baseNote, uint8_t* activeNotes, int numActive, uint8_t* inactiveNotes, int numInactive) {
+  int startNote = (baseNote / 12) * 12;
+
+  const int whiteKeyW = 16;
+  const int whiteKeyH = 36;
+  const int blackKeyW = 10;
+  const int blackKeyH = 22;
+  const int keyboardX = 8;
+  const int keyboardY = 16;
+
+  // Draw white keys (C D E F G A B)
+  int whiteKeyIndex = 0;
+  for (int note = 0; note < 12; note++) {
+    if (note == 0 || note == 2 || note == 4 || note == 5 || note == 7 || note == 9 || note == 11) {
+      int x = keyboardX + (whiteKeyIndex * whiteKeyW);
+
+      // Check if active (within max)
+      bool isActive = false;
+      for (int i = 0; i < numActive; i++) {
+        if ((activeNotes[i] % 12) == note) { isActive = true; break; }
+      }
+      // Check if inactive (beyond max)
+      bool isInactive = false;
+      for (int i = 0; i < numInactive; i++) {
+        if ((inactiveNotes[i] % 12) == note) { isInactive = true; break; }
+      }
+
+      if (isActive) {
+        display.fillRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
+      } else if (isInactive) {
+        // Dimmed - dotted outline
+        display.drawRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
+        for (int dy = keyboardY + 4; dy < keyboardY + whiteKeyH - 2; dy += 4) {
+          display.drawPixel(x + whiteKeyW/2, dy, WHITE);
+        }
+      } else {
+        display.drawRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
+      }
+      whiteKeyIndex++;
+    }
+  }
+
+  // Draw black keys
+  const int blackKeyPositions[5] = {0, 1, 3, 4, 5};
+  const int blackNotes[5] = {1, 3, 6, 8, 10};
+
+  for (int i = 0; i < 5; i++) {
+    int x = keyboardX + (blackKeyPositions[i] * whiteKeyW) + whiteKeyW - (blackKeyW / 2);
+
+    bool isActive = false;
+    for (int j = 0; j < numActive; j++) {
+      if ((activeNotes[j] % 12) == blackNotes[i]) { isActive = true; break; }
+    }
+    bool isInactive = false;
+    for (int j = 0; j < numInactive; j++) {
+      if ((inactiveNotes[j] % 12) == blackNotes[i]) { isInactive = true; break; }
+    }
+
+    if (isActive) {
+      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
+    } else if (isInactive) {
+      // Dimmed black key - dotted
+      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, BLACK);
+      display.drawRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
+      for (int dy = keyboardY + 3; dy < keyboardY + blackKeyH - 2; dy += 3) {
+        display.drawPixel(x + blackKeyW/2, dy, WHITE);
+      }
+    } else {
+      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, BLACK);
+      display.drawRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
+    }
+  }
+}
+
 void drawMainScreen() {
   // Playing state - show piano keyboard with pressed notes
   if (state.activePad >= 0) {
@@ -1731,23 +1739,31 @@ void drawMainScreen() {
     display.setCursor(116, 0);
     display.print(state.activePad + 1);
 
-    // Build array of currently playing MIDI notes
-    uint8_t playingNotes[8];
-    int numPlaying = 0;
+    // Build arrays of active notes (within max) and inactive notes (beyond max)
+    uint8_t activeNotes[8];
+    uint8_t inactiveNotes[8];
+    int numActive = 0;
+    int numInactive = 0;
     int chordRoot = settings.rootNote + chord.rootOffset + (state.currentOctave * 12);
     chordRoot = constrain(chordRoot, 0, 127);
 
+    int noteCount = 0;
     for (int i = 0; i < 8; i++) {
       if (chord.isActive[i]) {
         int note = chordRoot + chord.intervals[i];
         if (note >= 0 && note <= 127) {
-          playingNotes[numPlaying++] = note;
+          if (noteCount < settings.maxNotesPerChord) {
+            activeNotes[numActive++] = note;
+          } else {
+            inactiveNotes[numInactive++] = note;
+          }
+          noteCount++;
         }
       }
     }
 
-    // Draw piano keyboard with active notes
-    drawPianoKeyboard(chordRoot, playingNotes, numPlaying);
+    // Draw piano keyboard with active/inactive notes
+    drawPianoKeyboardWithDimmed(chordRoot, activeNotes, numActive, inactiveNotes, numInactive);
 
     // Bottom bar: hold + arp indicator + octave
     display.setTextSize(1);
