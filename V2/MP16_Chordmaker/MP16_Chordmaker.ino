@@ -1448,8 +1448,9 @@ void updateVisuals() {
 
   // Button 7 = HOLD toggle
   if (state.holdMode) {
-    float pulse = (sin(millis() * 0.008) + 1) * 0.5;
-    pixels.setPixelColor(8, dimColor(0xFF00FF, 0.4 + pulse * 0.6));  // Magenta pulse when active
+    // Fast, sharp blink (square wave feel) - more aggressive
+    float blink = ((millis() / 100) % 2) ? 1.0 : 0.5;
+    pixels.setPixelColor(8, dimColor(0xFF00FF, blink));  // Magenta hard blink when active
   } else {
     pixels.setPixelColor(8, dimColor(0xFF00FF, 0.15));  // Dim magenta
   }
