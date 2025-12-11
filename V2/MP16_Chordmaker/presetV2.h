@@ -217,4 +217,267 @@ const ChordV2* presetBanks[NUM_PRESET_BANKS] = {
   presetSad
 };
 
+// ============================================================================
+// SONG PRESETS - Famous chord progressions from classic songs
+// ============================================================================
+
+#define NUM_SONG_PRESETS 10
+
+// Song preset info (name for display)
+const char* songPresetNames[NUM_SONG_PRESETS] = {
+  "LetItBe",    // Beatles - C G Am F
+  "Hotel Ca",   // Eagles - Bm F# A E G D Em F#
+  "Canon",      // Pachelbel - D A Bm F#m G D G A
+  "DontStop",   // Journey - E B C#m A
+  "Careless",   // George Michael - Am Dm G C
+  "TakeOnMe",   // a-ha - A E F#m D
+  "NothElse",   // Metallica - Em D C G B7 Em
+  "Wonderwl",   // Oasis - F#m A E B7sus4
+  "Clocks",     // Coldplay - Eb Bbm Fm
+  "Africa"      // Toto - F#m D A E
+};
+
+// SONG 0: Let It Be - Beatles (C major) - I V vi IV
+const ChordV2 songLetItBe[9] = {
+  // C (I)
+  {0, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (V)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am (vi)
+  {9, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F (IV)
+  {5, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C/G (I with G bass feel)
+  {0, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (V repeat)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F (IV repeat)
+  {5, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em (iii)
+  {4, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Dm (ii)
+  {2, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 1: Hotel California - Eagles (Bm) - i V VII IV VI III iv V
+const ChordV2 songHotelCalifornia[9] = {
+  // Bm (i)
+  {11, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F# (V)
+  {6, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (VII)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E (IV)
+  {4, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (VI)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (III)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em (iv)
+  {4, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F#7 (V7)
+  {6, {0, 4, 7, 10, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -5, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Bm (i return)
+  {11, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 2: Canon in D - Pachelbel - I V vi iii IV I IV V
+const ChordV2 songCanon[9] = {
+  // D (I)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (V)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Bm (vi)
+  {11, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F#m (iii)
+  {6, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (IV)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (I)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (IV)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (V)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em (ii)
+  {4, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 3: Don't Stop Believin' - Journey (E major) - I V vi IV
+const ChordV2 songDontStop[9] = {
+  // E (I)
+  {4, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // B (V)
+  {11, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C#m (vi)
+  {1, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (IV)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E (I)
+  {4, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // B (V)
+  {11, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G#m (iii)
+  {8, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (IV)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F#m (ii)
+  {6, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 4: Careless Whisper - George Michael (Am) - i iv VII III
+const ChordV2 songCareless[9] = {
+  // Am (i)
+  {9, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Dm (iv)
+  {2, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (VII)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C (III)
+  {0, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F (VI)
+  {5, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E7 (V7)
+  {4, {0, 4, 7, 10, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -5, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am7 (i7)
+  {9, {0, 3, 7, 10, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -5, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Dm7 (iv7)
+  {2, {0, 3, 7, 10, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -5, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em (v)
+  {4, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 5: Take On Me - a-ha (A major) - I V vi IV
+const ChordV2 songTakeOnMe[9] = {
+  // A (I)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E (V)
+  {4, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F#m (vi)
+  {6, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (IV)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Bm (ii)
+  {11, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E (V)
+  {4, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C#m (iii)
+  {1, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (IV)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (I)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 6: Nothing Else Matters - Metallica (Em) - i VII VI III V7 i
+const ChordV2 songNothingElse[9] = {
+  // Em (i)
+  {4, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (VII)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C (VI)
+  {0, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (III)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // B7 (V7)
+  {11, {0, 4, 7, 10, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -5, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em (i)
+  {4, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am (iv)
+  {9, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C (VI)
+  {0, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (VII)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 7: Wonderwall - Oasis (F#m/Em capo) - vi I V IV
+const ChordV2 songWonderwall[9] = {
+  // Em (vi feel)
+  {4, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (I)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (V)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A7sus4 (IV sus)
+  {9, {0, 5, 7, 10, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -5, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C (bVI)
+  {0, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (V)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em7 (vi7)
+  {4, {0, 3, 7, 10, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -5, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (I)
+  {7, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (II)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 8: Clocks - Coldplay (Eb) - I v iv (piano riff pattern)
+const ChordV2 songClocks[9] = {
+  // Eb (I)
+  {3, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Bbm (v)
+  {10, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Fm (ii)
+  {5, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Eb (I)
+  {3, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Ab (IV)
+  {8, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Eb (I)
+  {3, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Bbm (v)
+  {10, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Fm (ii)
+  {5, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Cm (vi)
+  {0, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// SONG 9: Africa - Toto (F#m/A) - vi IV I V
+const ChordV2 songAfrica[9] = {
+  // F#m (vi)
+  {6, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (IV)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (I)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E (V)
+  {4, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F#m (vi)
+  {6, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D (IV)
+  {2, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A (I)
+  {9, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E (V)
+  {4, {0, 4, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Bm (ii)
+  {11, {0, 3, 7, 12, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0}, {0, -5, -5, -10, 0, 0, 0, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// Array of pointers to all song presets
+const ChordV2* songPresets[NUM_SONG_PRESETS] = {
+  songLetItBe,
+  songHotelCalifornia,
+  songCanon,
+  songDontStop,
+  songCareless,
+  songTakeOnMe,
+  songNothingElse,
+  songWonderwall,
+  songClocks,
+  songAfrica
+};
+
+// Total presets = style banks + song presets
+#define NUM_TOTAL_PRESETS (NUM_PRESET_BANKS + NUM_SONG_PRESETS)
+
+// Combined preset names for display
+const char* allPresetNames[NUM_TOTAL_PRESETS] = {
+  "DEFAULT", "JAZZ", "POP", "LOFI", "EDM", "SAD",  // Style presets
+  "LetItBe", "Hotel Ca", "Canon", "DontStop", "Careless", "TakeOnMe", "NothElse", "Wonderwl", "Clocks", "Africa"  // Song presets
+};
+
 #endif // PRESETS_V2_H

@@ -156,6 +156,8 @@ struct RuntimeState {
   int settingsPage = 0;           // Settings menu item index
   int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave
   bool holdMode = false;          // HOLD mode - sustain notes after releasing pad
+  bool inPresetMode = false;      // Preset mode (Shift+Encoder click to toggle)
+  int currentPreset = 0;          // Current preset index (0 to NUM_PRESETS-1)
 };
 
 // MIDI Clock state
@@ -406,6 +408,28 @@ void checkKeys() {
 }
 
 void processButtonPresses() {
+  // Shift + Encoder Click = Toggle Preset Mode
+  if (shiftState && encoderState && !previousEncoderState) {
+    // Stop any playing notes first
+    if (state.activePad >= 0) {
+      if (state.arpRate > 0) {
+        stopCurrentArpNote();
+      }
+      stopChord(state.activePad);
+      state.activePad = -1;
+    }
+
+    state.inPresetMode = !state.inPresetMode;
+    if (state.inPresetMode) {
+      // Entering preset mode - load current preset
+      loadPreset(state.currentPreset);
+    } else {
+      // Exiting preset mode - return to scale mode
+      loadScaleMode();
+    }
+    return;
+  }
+
   // Button 3 = Settings toggle (click to open/close)
   if (keyStates[3] && !previousKeyStates[3]) {
     if (state.inArpSettings) {
@@ -601,10 +625,36 @@ void processButtonPresses() {
     return;
   }
 
-  // Encoder changes root note or scale (works while playing too for live transposition!)
+  // Encoder navigation - changes based on mode
   if (!state.inSettingsMode && !state.inArpSettings && !state.inMaxNotesMenu) {
     if (encoderValue != 0) {
-      // Shift+encoder = change scale, encoder alone = change root
+      // In preset mode: encoder scrolls through presets
+      if (state.inPresetMode) {
+        // Stop current notes before switching
+        if (state.activePad >= 0) {
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
+          }
+          stopChord(state.activePad);
+        }
+
+        // Change preset
+        if (encoderValue > 0) {
+          state.currentPreset = (state.currentPreset + 1) % NUM_TOTAL_PRESETS;
+        } else {
+          state.currentPreset = (state.currentPreset + NUM_TOTAL_PRESETS - 1) % NUM_TOTAL_PRESETS;
+        }
+        loadPreset(state.currentPreset);
+
+        // Resume playing if pad was held
+        if (state.activePad >= 0 && state.arpRate == 0) {
+          playChord(state.activePad);
+        }
+        encoderValue = 0;
+        return;
+      }
+
+      // Normal mode: Shift+encoder = change scale, encoder alone = change root
       if (shiftState) {
         // Shift+encoder: change scale type
         int oldScale = settings.scaleType;
@@ -670,7 +720,8 @@ void processButtonPresses() {
       // SHIFT + PAD = Change root note (transpose)
       // Pads 0-8 = semitone offsets from a base (C of current octave)
       // This lets you quickly jump between keys while jamming
-      if (shiftState) {
+      // NOTE: Disabled in preset mode (songs have fixed keys)
+      if (shiftState && !state.inPresetMode) {
         // Base is C of the current root's octave
         int baseNote = (settings.rootNote / 12) * 12;  // Round down to C
         int newRoot = baseNote + i;  // Pad 0 = C, Pad 1 = C#, ... Pad 8 = G#
@@ -1905,14 +1956,22 @@ void drawMainScreen() {
   if (state.activePad >= 0) {
     ChordV2& chord = pads[state.activePad].chord;
 
-    // Top-left: root key info (tiny)
+    // Top-left: root key info (tiny) - or preset indicator
     display.setTextSize(1);
     display.setCursor(0, 0);
-    display.print(midiNoteNames[settings.rootNote]);
+    if (state.inPresetMode) {
+      display.fillCircle(3, 3, 2, WHITE);  // Small dot = preset mode
+    } else {
+      display.print(midiNoteNames[settings.rootNote]);
+    }
 
-    // Top-center: scale info
+    // Top-center: preset name or scale info
     display.setCursor(40, 0);
-    display.print(scaleNames[settings.scaleType]);
+    if (state.inPresetMode) {
+      display.print(allPresetNames[state.currentPreset]);
+    } else {
+      display.print(scaleNames[settings.scaleType]);
+    }
 
     // Top-right: pad number
     display.setCursor(116, 0);
@@ -1964,14 +2023,25 @@ void drawMainScreen() {
     }
 
   } else {
-    // IDLE state - 8-bit style with scale on top, root in center
+    // IDLE state - 8-bit style with scale/preset on top, root in center
 
-    // Top: Scale name centered
+    // Top: Preset name or Scale name centered
     display.setTextSize(1);
-    int scaleLen = strlen(scaleNames[settings.scaleType]);
-    int scaleX = 64 - (scaleLen * 3);
-    display.setCursor(scaleX, 2);
-    display.print(scaleNames[settings.scaleType]);
+    const char* topText;
+    if (state.inPresetMode) {
+      topText = allPresetNames[state.currentPreset];
+    } else {
+      topText = scaleNames[settings.scaleType];
+    }
+    int topLen = strlen(topText);
+    int topX = 64 - (topLen * 3);
+    display.setCursor(topX, 2);
+    display.print(topText);
+
+    // Preset mode indicator (small filled dot on left)
+    if (state.inPresetMode) {
+      display.fillCircle(4, 5, 2, WHITE);
+    }
 
     // Clock indicator dot (top right, blinks on beat)
     if (settings.midiClockSync) {
@@ -2114,6 +2184,33 @@ void initPadsFromPreset() {
 void loadCurrentMode() {
   // Always use SCALE mode - generate diatonic chords from root + scale
   loadScaleMode();
+}
+
+// Load a preset (style bank or song preset)
+void loadPreset(int presetIndex) {
+  presetIndex = constrain(presetIndex, 0, NUM_TOTAL_PRESETS - 1);
+
+  const ChordV2* presetChords;
+
+  if (presetIndex < NUM_PRESET_BANKS) {
+    // Style preset (DEFAULT, JAZZ, POP, LOFI, EDM, SAD)
+    presetChords = presetBanks[presetIndex];
+  } else {
+    // Song preset (Let It Be, Hotel California, etc.)
+    int songIndex = presetIndex - NUM_PRESET_BANKS;
+    presetChords = songPresets[songIndex];
+  }
+
+  // Copy preset chords to pads
+  for (int i = 0; i < 9; i++) {
+    pads[i].color = padColors[i];
+    pads[i].triggerNote = settings.rootNote + i;
+    pads[i].velocity = 100;
+    pads[i].velocityVariation = 0;
+
+    // Deep copy the chord data
+    pads[i].chord = presetChords[i];
+  }
 }
 
 void loadScaleMode() {
