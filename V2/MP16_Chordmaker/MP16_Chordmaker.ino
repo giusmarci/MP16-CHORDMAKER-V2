@@ -483,9 +483,9 @@ void processButtonPresses() {
     if (encoderValue != 0) {
       int oldMax = settings.maxNotesPerChord;
       if (encoderValue > 0) {
-        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord + 1, 1, 4);
+        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord + 1, 1, 8);
       } else {
-        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord - 1, 1, 4);
+        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord - 1, 1, 8);
       }
       // If playing and changed, restart chord with new note count
       if (state.activePad >= 0 && settings.maxNotesPerChord != oldMax) {
@@ -1797,16 +1797,17 @@ void drawMaxNotesScreen() {
   display.setCursor(52, 18);
   display.print(settings.maxNotesPerChord);
 
-  // Visual indicator - dots showing max notes (max 4)
+  // Visual indicator - dots showing max notes (max 8)
   display.setTextSize(1);
   int dotY = 54;
-  int startX = 64 - (4 * 10 / 2);  // Center 4 dots
+  int dotSpacing = 14;  // Spacing between dots
+  int startX = 64 - (8 * dotSpacing / 2) + dotSpacing / 2;  // Center 8 dots
   for (int i = 0; i < settings.maxNotesPerChord; i++) {
-    display.fillCircle(startX + i * 10, dotY, 4, WHITE);
+    display.fillCircle(startX + i * dotSpacing, dotY, 3, WHITE);
   }
-  // Show empty slots (max 4)
-  for (int i = settings.maxNotesPerChord; i < 4; i++) {
-    display.drawCircle(startX + i * 10, dotY, 4, WHITE);
+  // Show empty slots (max 8)
+  for (int i = settings.maxNotesPerChord; i < 8; i++) {
+    display.drawCircle(startX + i * dotSpacing, dotY, 3, WHITE);
   }
 }
 
