@@ -115,6 +115,7 @@ struct SettingsV2 {
   int playMode = 0;               // 0 = SCALE mode (user sets root/scale), 1 = PRESET mode (jazz, pop, etc.)
   bool midiClockSync = true;      // Sync arp to external MIDI clock (default ON)
   int presetBank = 0;             // Current preset bank for PRESET mode (0-5)
+  int internalBpm = 120;          // Internal BPM when not receiving external clock (20-300)
   // Arp settings
   int arpPattern = 0;             // 0=straight, 1=swing, 2=dotted, 3=triplet, 4=humanize, 5=stutter
   int arpGate = 80;               // Gate length as % (10-100)
@@ -173,6 +174,13 @@ bool externalClockActive = false;           // True when receiving valid externa
 bool clockPulseIndicator = false;           // Blinks on each clock pulse for visual feedback
 unsigned long lastClockPulseTime = 0;       // For clock indicator timing
 
+// BPM detection and internal clock
+volatile unsigned long lastClockMicros = 0; // For BPM calculation
+volatile unsigned long clockIntervalMicros = 0; // Average interval between clocks
+int detectedBpm = 0;                        // Calculated BPM from external clock
+unsigned long lastInternalClockTime = 0;    // For internal clock generation
+int internalClockCounter = 0;               // Internal clock pulse counter
+
 // Arpeggiator note tracking (to prevent stuck notes)
 int lastArpPad = -1;                        // Which pad the last arp note was from
 int lastArpNoteIndex = -1;                  // Which note index was last played
@@ -222,6 +230,7 @@ void loop() {
   // Main V2 loop
   checkKeys();
   updateMIDI();
+  updateInternalClock();  // Generate internal clock when no external
   updateArpeggiator();
   updateVisuals();
   updateDisplay();
@@ -535,7 +544,8 @@ void processButtonPresses() {
   // SCALE mode pages: 0=Mode, 1=Root, 2=Scale, 3=Channel, 4=Clock
   // PRESET mode pages: 0=Mode, 1=Bank, 2=Channel, 3=Clock
   if (state.inSettingsMode) {
-    int maxPages = (settings.playMode == 0) ? 4 : 3;
+    // Pages: 0=Mode, 1=Channel, 2=BPM (same for both modes now)
+    int maxPages = 2;
 
     // Encoder click cycles through settings pages (wraps around, only Shift+3 exits)
     if (encoderState && !previousEncoderState) {
@@ -548,80 +558,28 @@ void processButtonPresses() {
 
     // Encoder rotation changes current setting
     if (encoderValue != 0) {
-      if (settings.playMode == 0) {
-        // SCALE mode settings
-        switch (state.settingsPage) {
-          case 0:  // Play Mode
-            settings.playMode = 1 - settings.playMode;  // Toggle 0/1
-            state.settingsPage = 0;  // Reset to show new mode's settings
-            break;
-          case 1:  // Root Note
-            {
-              int oldRoot = settings.rootNote;
-              if (encoderValue > 0) {
-                settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
-              } else {
-                settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
-              }
-              // Stop old notes if playing to prevent stuck notes
-              if (state.activePad >= 0 && settings.rootNote != oldRoot) {
-                if (state.arpRate > 0) {
-                  stopCurrentArpNote();
-                }
-                int tempRoot = settings.rootNote;
-                settings.rootNote = oldRoot;
-                stopChord(state.activePad);
-                settings.rootNote = tempRoot;
-                loadScaleMode();
-                if (state.arpRate == 0) {
-                  playChord(state.activePad);
-                }
-              }
-            }
-            break;
-          case 2:  // Scale Type
+      switch (state.settingsPage) {
+        case 0:  // Play Mode
+          settings.playMode = 1 - settings.playMode;  // Toggle 0/1
+          state.settingsPage = 0;  // Reset to show new mode's settings
+          loadCurrentMode();
+          break;
+        case 1:  // MIDI Channel
+          if (encoderValue > 0) {
+            settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
+          } else {
+            settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
+          }
+          break;
+        case 2:  // BPM (only editable when no external clock)
+          if (!externalClockActive) {
             if (encoderValue > 0) {
-              settings.scaleType = (settings.scaleType + 1) % NUM_SCALES;
+              settings.internalBpm = constrain(settings.internalBpm + 1, 20, 300);
             } else {
-              settings.scaleType = (settings.scaleType + NUM_SCALES - 1) % NUM_SCALES;
+              settings.internalBpm = constrain(settings.internalBpm - 1, 20, 300);
             }
-            break;
-          case 3:  // MIDI Channel
-            if (encoderValue > 0) {
-              settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
-            } else {
-              settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
-            }
-            break;
-          case 4:  // Clock Sync
-            settings.midiClockSync = !settings.midiClockSync;
-            break;
-        }
-      } else {
-        // PRESET mode settings
-        switch (state.settingsPage) {
-          case 0:  // Play Mode
-            settings.playMode = 1 - settings.playMode;
-            state.settingsPage = 0;
-            break;
-          case 1:  // Preset Bank
-            if (encoderValue > 0) {
-              settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
-            } else {
-              settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
-            }
-            break;
-          case 2:  // MIDI Channel
-            if (encoderValue > 0) {
-              settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
-            } else {
-              settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
-            }
-            break;
-          case 3:  // Clock Sync
-            settings.midiClockSync = !settings.midiClockSync;
-            break;
-        }
+          }
+          break;
       }
       encoderValue = 0;
     }
@@ -809,14 +767,35 @@ void updateMIDI() {
     if (inByte >= 0xF8) {
       switch (inByte) {
         case 0xF8:  // MIDI Clock (24 PPQN)
-          midiClockReceived = true;
-          midiClockCounter++;
-          arpClockCount++;  // Count for arpeggiator sync
-          lastClockTime = millis();
-          // Visual indicator - pulse every beat (every 24 clocks)
-          if (midiClockCounter % 24 == 0) {
-            clockPulseIndicator = true;
-            lastClockPulseTime = millis();
+          {
+            midiClockReceived = true;
+            midiClockCounter++;
+            arpClockCount++;  // Count for arpeggiator sync
+            lastClockTime = millis();
+
+            // Calculate BPM from clock interval (average over 24 clocks = 1 beat)
+            unsigned long now = micros();
+            if (lastClockMicros > 0) {
+              // Smooth averaging of clock intervals
+              unsigned long interval = now - lastClockMicros;
+              if (clockIntervalMicros == 0) {
+                clockIntervalMicros = interval;
+              } else {
+                clockIntervalMicros = (clockIntervalMicros * 7 + interval) / 8;  // Smoothing
+              }
+              // BPM = 60,000,000 / (interval_micros * 24)
+              if (clockIntervalMicros > 0) {
+                detectedBpm = 60000000UL / (clockIntervalMicros * 24);
+                detectedBpm = constrain(detectedBpm, 20, 300);
+              }
+            }
+            lastClockMicros = now;
+
+            // Visual indicator - pulse every beat (every 24 clocks)
+            if (midiClockCounter % 24 == 0) {
+              clockPulseIndicator = true;
+              lastClockPulseTime = millis();
+            }
           }
           break;
         case 0xFA:  // Start
@@ -1000,6 +979,38 @@ int getPatternInterval(int baseInterval) {
 
 // Track last clock position we triggered on (for proper grid sync)
 int lastArpTriggerClock = -1;
+
+// Generate internal MIDI clock and send out when no external clock
+void updateInternalClock() {
+  unsigned long currentTime = millis();
+
+  // Only generate internal clock if no external clock present
+  bool clockPresent = (currentTime - lastClockTime) < 500;
+  if (clockPresent) {
+    return;  // External clock active, don't generate internal
+  }
+
+  // Calculate interval between clock pulses (24 PPQN)
+  // At BPM, quarter note = 60000/BPM ms, so clock pulse = 60000/(BPM*24) ms
+  unsigned long clockInterval = 60000UL / (settings.internalBpm * 24);
+
+  if (currentTime - lastInternalClockTime >= clockInterval) {
+    lastInternalClockTime = currentTime;
+
+    // Send MIDI clock out
+    Serial1.write(0xF8);
+
+    // Increment counter for internal sync
+    internalClockCounter++;
+    midiClockCounter = internalClockCounter;  // Sync with arp counter
+
+    // Visual indicator - pulse every beat (every 24 clocks)
+    if (internalClockCounter % 24 == 0) {
+      clockPulseIndicator = true;
+      lastClockPulseTime = currentTime;
+    }
+  }
+}
 
 void updateArpeggiator() {
   if (state.arpRate == 0 || state.activePad < 0) {
@@ -1880,7 +1891,7 @@ void drawEditScreen() {
 }
 
 void drawSettingsScreen() {
-  int maxPages = (settings.playMode == 0) ? 5 : 4;
+  int maxPages = 3;  // Mode, Channel, BPM
 
   // Page indicator dots at top
   for (int i = 0; i < maxPages; i++) {
@@ -1899,68 +1910,44 @@ void drawSettingsScreen() {
 
   const char* label = "";
 
-  if (settings.playMode == 0) {
-    // SCALE mode settings
-    switch (state.settingsPage) {
-      case 0:  // Play Mode
-        display.setTextSize(2);
-        display.setCursor(20, 20);
-        display.print("SCALE");
-        label = "PLAY MODE";
-        break;
-      case 1:  // Root Note
+  // Pages: 0=Mode, 1=Channel, 2=BPM (same for both modes)
+  switch (state.settingsPage) {
+    case 0:  // Play Mode
+      display.setTextSize(2);
+      display.setCursor(settings.playMode == 0 ? 20 : 16, 20);
+      display.print(settings.playMode == 0 ? "SCALE" : "PRESET");
+      label = "PLAY MODE";
+      break;
+    case 1:  // MIDI Channel
+      display.setTextSize(4);
+      display.setCursor((settings.midiOutputAChannel + 1 < 10) ? 52 : 36, 18);
+      display.print(settings.midiOutputAChannel + 1);
+      label = "MIDI CHANNEL";
+      break;
+    case 2:  // BPM
+      {
+        int displayBpm = externalClockActive ? detectedBpm : settings.internalBpm;
         display.setTextSize(3);
-        display.setCursor(32, 18);
-        display.print(midiNoteNames[settings.rootNote]);
-        label = "ROOT NOTE";
-        break;
-      case 2:  // Scale Type
-        display.setTextSize(2);
-        display.setCursor(20, 22);
-        display.print(scaleNames[settings.scaleType]);
-        label = "SCALE TYPE";
-        break;
-      case 3:  // MIDI Channel
-        display.setTextSize(4);
-        display.setCursor((settings.midiOutputAChannel + 1 < 10) ? 52 : 36, 18);
-        display.print(settings.midiOutputAChannel + 1);
-        label = "MIDI CHANNEL";
-        break;
-      case 4:  // Clock Sync
-        display.setTextSize(3);
-        display.setCursor(32, 22);
-        display.print(settings.midiClockSync ? "ON" : "OFF");
-        label = "CLOCK SYNC";
-        break;
-    }
-  } else {
-    // PRESET mode settings
-    switch (state.settingsPage) {
-      case 0:  // Play Mode
-        display.setTextSize(2);
-        display.setCursor(16, 20);
-        display.print("PRESET");
-        label = "PLAY MODE";
-        break;
-      case 1:  // Preset Bank
-        display.setTextSize(2);
-        display.setCursor(16, 22);
-        display.print(presetBankInfo[settings.presetBank].name);
-        label = "PRESET BANK";
-        break;
-      case 2:  // MIDI Channel
-        display.setTextSize(4);
-        display.setCursor((settings.midiOutputAChannel + 1 < 10) ? 52 : 36, 18);
-        display.print(settings.midiOutputAChannel + 1);
-        label = "MIDI CHANNEL";
-        break;
-      case 3:  // Clock Sync
-        display.setTextSize(3);
-        display.setCursor(32, 22);
-        display.print(settings.midiClockSync ? "ON" : "OFF");
-        label = "CLOCK SYNC";
-        break;
-    }
+        int xPos = (displayBpm >= 100) ? 28 : 40;
+        display.setCursor(xPos, 16);
+        display.print(displayBpm);
+
+        // Clock indicator dot (shows sync status)
+        if (externalClockActive) {
+          // Pulsing dot for external clock
+          if (clockPulseIndicator && (millis() - lastClockPulseTime < 100)) {
+            display.fillCircle(110, 24, 6, WHITE);
+          } else {
+            display.drawCircle(110, 24, 6, WHITE);
+          }
+          label = "BPM (SYNC)";
+        } else {
+          // Small dot for internal
+          display.fillCircle(110, 24, 3, WHITE);
+          label = "BPM (INT)";
+        }
+      }
+      break;
   }
 
   // Bottom label
