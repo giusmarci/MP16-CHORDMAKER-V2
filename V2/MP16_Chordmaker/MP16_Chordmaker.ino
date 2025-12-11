@@ -511,10 +511,27 @@ void processButtonPresses() {
             state.settingsPage = 0;  // Reset to show new mode's settings
             break;
           case 1:  // Root Note
-            if (encoderValue > 0) {
-              settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
-            } else {
-              settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
+            {
+              int oldRoot = settings.rootNote;
+              if (encoderValue > 0) {
+                settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
+              } else {
+                settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
+              }
+              // Stop old notes if playing to prevent stuck notes
+              if (state.activePad >= 0 && settings.rootNote != oldRoot) {
+                if (state.arpRate > 0) {
+                  stopCurrentArpNote();
+                }
+                int tempRoot = settings.rootNote;
+                settings.rootNote = oldRoot;
+                stopChord(state.activePad);
+                settings.rootNote = tempRoot;
+                loadScaleMode();
+                if (state.arpRate == 0) {
+                  playChord(state.activePad);
+                }
+              }
             }
             break;
           case 2:  // Scale Type
@@ -587,15 +604,23 @@ void processButtonPresses() {
 
         // If playing, transpose live: stop old notes, play new
         if (state.activePad >= 0 && settings.rootNote != oldRoot) {
+          // Stop any arp note first (uses stored MIDI note, no recalc needed)
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
+          }
+
           // Stop current chord with old root
           int tempRoot = settings.rootNote;
           settings.rootNote = oldRoot;
           stopChord(state.activePad);
           settings.rootNote = tempRoot;
 
-          // Play chord with new root
+          // Play chord with new root (arp will pick up on next tick)
           loadScaleMode();  // Regenerate chord offsets
-          playChord(state.activePad);
+          if (state.arpRate == 0) {
+            playChord(state.activePad);
+          }
+          // If arp is on, don't play chord - let arp handle it
         } else {
           loadCurrentMode();
         }
