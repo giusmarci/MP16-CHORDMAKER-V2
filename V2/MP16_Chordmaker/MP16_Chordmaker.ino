@@ -113,6 +113,7 @@ struct SettingsV2 {
   int defaultVelocity = 100;
   int ledBrightness = 100;
   int deviceMode = 1;             // 0 = Legacy, 1 = V2
+  bool midiClockSync = true;      // Sync arp to external MIDI clock (default ON)
 };
 
 // V2 Runtime state
@@ -130,6 +131,13 @@ struct RuntimeState {
   bool introComplete = false;
   bool inSettingsMode = false;    // MIDI channel settings mode
 };
+
+// MIDI Clock state
+volatile bool midiClockReceived = false;    // Flag set by interrupt when clock pulse received
+volatile int midiClockCounter = 0;          // Counts clock pulses (24 PPQN)
+volatile bool midiTransportRunning = false; // Start/Stop state
+volatile unsigned long lastClockTime = 0;   // For detecting clock presence
+bool externalClockActive = false;           // True when receiving valid external clock
 
 SettingsV2 settings;
 RuntimeState state;
@@ -530,17 +538,51 @@ void forwardMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
 
 //================================ ARPEGGIATOR ================================
 
+// Clock dividers for each arp rate (MIDI clock = 24 PPQN)
+// Rate: 0=off, 1=1/2, 2=1/4, 3=1/8, 4=1/16, 5=1/32, 6=1/64
+const int clockDividers[7] = {
+  0,   // OFF
+  48,  // 1/2 note = 48 clocks (2 beats)
+  24,  // 1/4 note = 24 clocks (1 beat)
+  12,  // 1/8 note = 12 clocks
+  6,   // 1/16 note = 6 clocks
+  3,   // 1/32 note = 3 clocks
+  1    // 1/64 note = 1 clock (every pulse... very fast)
+};
+
 void updateArpeggiator() {
   if (state.arpRate == 0 || state.activePad < 0) {
     return;
   }
 
   unsigned long currentTime = millis();
-  int interval = arpTimings[state.arpRate];
 
-  if (currentTime - state.lastArpTime >= interval) {
-    state.lastArpTime = currentTime;
+  // Check if external clock is active (received within last 500ms)
+  bool clockPresent = (currentTime - lastClockTime) < 500;
+  externalClockActive = clockPresent && settings.midiClockSync;
 
+  bool shouldTrigger = false;
+
+  if (externalClockActive) {
+    // Sync to external MIDI clock
+    if (midiClockReceived) {
+      midiClockReceived = false;
+
+      int divider = clockDividers[state.arpRate];
+      if (divider > 0 && (midiClockCounter % divider) == 0) {
+        shouldTrigger = true;
+      }
+    }
+  } else {
+    // Use internal timing
+    int interval = arpTimings[state.arpRate];
+    if (currentTime - state.lastArpTime >= interval) {
+      state.lastArpTime = currentTime;
+      shouldTrigger = true;
+    }
+  }
+
+  if (shouldTrigger) {
     // Stop previous note
     stopArpNote(state.activePad, state.arpNoteIndex);
 
@@ -926,6 +968,12 @@ void drawMainScreen() {
     display.print("ARP:");
     display.print(arpRateNames[state.arpRate]);
 
+    // Show clock sync indicator
+    if (externalClockActive) {
+      display.setCursor(116, 36);
+      display.print("*");  // Asterisk when synced
+    }
+
     // Decorative line
     display.drawFastHLine(4, 50, 120, WHITE);
     display.drawFastHLine(4, 52, 120, WHITE);
@@ -1096,6 +1144,28 @@ void updateEncoder() {
 
 void midiInterruptHandler() {
   uint8_t incomingByte = Serial1.read();
+
+  // Handle real-time messages first (single byte, can occur anytime)
+  if (incomingByte >= 0xF8) {
+    switch (incomingByte) {
+      case 0xF8:  // MIDI Clock (24 PPQN)
+        midiClockReceived = true;
+        midiClockCounter++;
+        lastClockTime = millis();
+        break;
+      case 0xFA:  // Start
+        midiTransportRunning = true;
+        midiClockCounter = 0;
+        break;
+      case 0xFB:  // Continue
+        midiTransportRunning = true;
+        break;
+      case 0xFC:  // Stop
+        midiTransportRunning = false;
+        break;
+    }
+    return;  // Real-time messages don't affect state machine
+  }
 
   switch (currentMidiState) {
     case WAITING_FOR_STATUS:
