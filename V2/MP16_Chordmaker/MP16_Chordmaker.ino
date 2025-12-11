@@ -895,6 +895,9 @@ int getPatternInterval(int baseInterval) {
   }
 }
 
+// Track last clock position we triggered on (for proper grid sync)
+int lastArpTriggerClock = -1;
+
 void updateArpeggiator() {
   if (state.arpRate == 0 || state.activePad < 0) {
     return;
@@ -920,18 +923,20 @@ void updateArpeggiator() {
   bool shouldTrigger = false;
 
   if (externalClockActive) {
-    // SIMPLE clock sync: count clocks, trigger when we reach the divider
+    // QUANTIZED clock sync: trigger on clock grid positions
+    // Use global midiClockCounter to stay locked to transport
     int divider = clockDividers[state.arpRate];
 
-    // Apply swing for odd steps
-    if (settings.arpPattern == 1 && state.arpStepInPattern % 2 == 1) {
-      int swingExtra = (settings.arpSwing - 50) * divider / 100;
-      divider += swingExtra;
-    }
+    if (divider > 0) {
+      // Calculate which "slot" we're on in the clock grid
+      int currentSlot = midiClockCounter / divider;
+      int lastSlot = lastArpTriggerClock / divider;
 
-    if (divider > 0 && arpClockCount >= divider) {
-      shouldTrigger = true;
-      arpClockCount = 0;  // Reset counter
+      // Trigger when we enter a new slot (quantized to grid)
+      if (currentSlot != lastSlot || lastArpTriggerClock < 0) {
+        shouldTrigger = true;
+        lastArpTriggerClock = midiClockCounter;
+      }
     }
   } else {
     // Internal timing
