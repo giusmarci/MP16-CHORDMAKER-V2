@@ -146,9 +146,6 @@ struct RuntimeState {
   unsigned long lastArpTime = 0;
   int arpStepInPattern = 0;       // For pattern-based timing
   int arpOctaveStep = 0;          // Current octave in multi-octave mode
-  bool inEditMode = false;
-  int editingPad = -1;
-  int editNoteIndex = 0;
   int activePad = -1;             // Currently playing pad (-1 = none)
   bool introComplete = false;
   bool inSettingsMode = false;    // Settings mode (toggle with button 3)
@@ -593,7 +590,7 @@ void processButtonPresses() {
   }
 
   // Encoder changes root note or scale (works while playing too for live transposition!)
-  if (!state.inEditMode && !state.inSettingsMode && !state.inArpSettings && !state.inMaxNotesMenu) {
+  if (!state.inSettingsMode && !state.inArpSettings && !state.inMaxNotesMenu) {
     if (encoderValue != 0) {
       // Shift+encoder = change scale, encoder alone = change root
       if (shiftState) {
@@ -658,41 +655,32 @@ void processButtonPresses() {
     int btnIndex = CHORD_PAD_BUTTONS[i];
 
     if (keyStates[btnIndex] && !previousKeyStates[btnIndex]) {
-      // Button pressed
-      if (shiftState) {
-        // Enter edit mode for this pad
-        state.inEditMode = true;
-        state.editingPad = i;
-        state.editNoteIndex = 0;
-      } else {
-        // Stop any currently playing notes before switching pads
-        if (state.activePad >= 0 && state.activePad != i) {
-          if (state.arpRate > 0) {
-            stopCurrentArpNote();
-          }
-          // Stop held chord if switching pads
-          stopChord(state.activePad);
+      // Button pressed - play chord
+      // Stop any currently playing notes before switching pads
+      if (state.activePad >= 0 && state.activePad != i) {
+        if (state.arpRate > 0) {
+          stopCurrentArpNote();
         }
-        // Play chord
-        padStates[i] = true;
-        state.activePad = i;
-        // Reset arp state when switching pads
-        state.arpNoteIndex = 0;
-        state.arpDirection = true;
-        state.arpOctaveStep = 0;  // Reset octave cycling
+        // Stop held chord if switching pads
+        stopChord(state.activePad);
       }
+      // Play chord
+      padStates[i] = true;
+      state.activePad = i;
+      // Reset arp state when switching pads
+      state.arpNoteIndex = 0;
+      state.arpDirection = true;
+      state.arpOctaveStep = 0;  // Reset octave cycling
     } else if (!keyStates[btnIndex] && previousKeyStates[btnIndex]) {
       // Button released
-      if (!shiftState && !state.inEditMode) {
-        padStates[i] = false;
-        // If HOLD mode is on, keep playing (don't stop notes or clear activePad)
-        if (!state.holdMode && state.activePad == i) {
-          // Stop any arp note that's currently playing before clearing activePad
-          if (state.arpRate > 0) {
-            stopCurrentArpNote();
-          }
-          state.activePad = -1;
+      padStates[i] = false;
+      // If HOLD mode is on, keep playing (don't stop notes or clear activePad)
+      if (!state.holdMode && state.activePad == i) {
+        // Stop any arp note that's currently playing before clearing activePad
+        if (state.arpRate > 0) {
+          stopCurrentArpNote();
         }
+        state.activePad = -1;
       }
     }
   }
@@ -723,28 +711,6 @@ void processButtonPresses() {
     state.arpRate = constrain(state.arpRate + 1, 0, 6);
   }
 
-  // Handle edit mode with encoder
-  if (state.inEditMode) {
-    if (encoderValue > 0) {
-      state.editNoteIndex = (state.editNoteIndex + 1) % 8;
-      encoderValue = 0;
-    } else if (encoderValue < 0) {
-      state.editNoteIndex = (state.editNoteIndex + 7) % 8;
-      encoderValue = 0;
-    }
-
-    // Encoder click toggles note
-    if (encoderState && !previousEncoderState) {
-      pads[state.editingPad].chord.isActive[state.editNoteIndex] =
-        !pads[state.editingPad].chord.isActive[state.editNoteIndex];
-    }
-
-    // Exit edit mode when shift released
-    if (!shiftState && previousShiftState) {
-      state.inEditMode = false;
-      state.editingPad = -1;
-    }
-  }
 }
 
 //================================ MIDI PROCESSING ================================
@@ -1410,8 +1376,6 @@ void updateVisuals() {
   // Shift key LED (pixel 0)
   if (shiftState) {
     pixels.setPixelColor(0, COLOR_SHIFT);
-  } else if (state.inEditMode) {
-    pixels.setPixelColor(0, dimColor(COLOR_SHIFT, dimFactor));
   }
 
   // Chord pad LEDs - map to physical button positions
@@ -1422,11 +1386,7 @@ void updateVisuals() {
     int pixelIndex = btnIndex + 1;
     uint32_t color;
 
-    if (state.inEditMode && state.editingPad == i) {
-      // Editing this pad - pulse effect
-      float pulse = (sin(millis() * 0.01) + 1) * 0.5;
-      color = dimColor(COLOR_EDIT, 0.3 + pulse * 0.7);
-    } else if (padStates[i] || (state.activePad == i && state.arpRate > 0)) {
+    if (padStates[i] || (state.activePad == i && state.arpRate > 0)) {
       // Playing
       color = COLOR_PLAYING;
     } else {
@@ -1507,8 +1467,6 @@ void updateDisplay() {
     drawArpSettingsScreen();
   } else if (state.inMaxNotesMenu) {
     drawMaxNotesScreen();
-  } else if (state.inEditMode) {
-    drawEditScreen();
   } else {
     drawMainScreen();
   }
@@ -1797,65 +1755,6 @@ void drawMainScreen() {
     // Right: channel
     display.setCursor(108, 56);
     display.print(settings.midiOutputAChannel + 1);
-  }
-}
-
-void drawEditScreen() {
-  ChordV2& chord = pads[state.editingPad].chord;
-
-  // Header - big pad number
-  display.setTextSize(2);
-  display.setCursor(4, 2);
-  display.print("PAD");
-  display.setTextSize(3);
-  display.setCursor(52, 0);
-  display.print(state.editingPad + 1);
-
-  // 8 note slots as vertical bars
-  const char* noteLabels[8] = {"1", "3", "5", "7", "9", "11", "13", "8"};
-
-  for (int i = 0; i < 8; i++) {
-    int x = 4 + (i * 15);
-    int y = 28;
-
-    // Selected indicator
-    if (i == state.editNoteIndex) {
-      // Arrow above
-      display.fillTriangle(x + 6, y - 6, x + 2, y - 2, x + 10, y - 2, WHITE);
-    }
-
-    // Note bar
-    if (chord.isActive[i]) {
-      // Filled bar with height based on interval
-      int barHeight = 20 + (chord.intervals[i] / 3);
-      barHeight = constrain(barHeight, 16, 34);
-      display.fillRect(x, 64 - barHeight, 12, barHeight, WHITE);
-
-      // Label inverted
-      display.setTextColor(BLACK);
-      display.setTextSize(1);
-      display.setCursor(x + 2, 64 - barHeight + 2);
-      display.print(noteLabels[i]);
-      display.setTextColor(WHITE);
-    } else {
-      // Empty box
-      display.drawRect(x, 48, 12, 16, WHITE);
-      display.setTextSize(1);
-      display.setCursor(x + 4, 52);
-      display.print("-");
-    }
-  }
-
-  // Selected note info on right
-  display.setTextSize(1);
-  display.setCursor(90, 28);
-  display.print("NOTE");
-  display.setTextSize(2);
-  display.setCursor(90, 38);
-  if (chord.isActive[state.editNoteIndex]) {
-    display.print("ON");
-  } else {
-    display.print("--");
   }
 }
 
