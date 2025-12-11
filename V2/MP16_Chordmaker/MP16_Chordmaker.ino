@@ -122,6 +122,7 @@ struct SettingsV2 {
   int arpHumanize = 0;            // Timing randomness 0-50ms
   int arpVelocityVar = 0;         // Velocity variation 0-50
   int arpOctaveRange = 0;         // 0=none, 1=+1oct, 2=+2oct, 3=-1oct, 4=+/-1oct
+  int maxNotesPerChord = 3;       // Max notes per chord (1-8, default 3)
 };
 
 // Arp pattern names
@@ -153,6 +154,7 @@ struct RuntimeState {
   bool introComplete = false;
   bool inSettingsMode = false;    // Settings mode (toggle with button 3)
   bool inArpSettings = false;     // Arp settings mode (toggle with button 11)
+  bool inMaxNotesMenu = false;    // Max notes menu (toggle with Shift+7)
   int settingsPage = 0;           // Settings page index
   int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave
   bool holdMode = false;          // HOLD mode - sustain notes after releasing pad
@@ -427,15 +429,35 @@ void processButtonPresses() {
   }
 
   // Button 7 = HOLD toggle (sustain notes after releasing pad)
+  // Shift + Button 7 = Max Notes menu
   if (keyStates[7] && !previousKeyStates[7]) {
-    state.holdMode = !state.holdMode;
-    // If turning off hold, stop any sustained notes
-    if (!state.holdMode && state.activePad >= 0 && !padStates[state.activePad]) {
-      if (state.arpRate > 0) {
-        stopCurrentArpNote();
+    if (shiftState) {
+      // Shift + 7 = toggle Max Notes menu
+      state.inMaxNotesMenu = !state.inMaxNotesMenu;
+    } else {
+      // Just 7 = toggle HOLD mode
+      state.holdMode = !state.holdMode;
+      // If turning off hold, stop any sustained notes
+      if (!state.holdMode && state.activePad >= 0 && !padStates[state.activePad]) {
+        if (state.arpRate > 0) {
+          stopCurrentArpNote();
+        }
+        stopChord(state.activePad);
+        state.activePad = -1;
       }
-      stopChord(state.activePad);
-      state.activePad = -1;
+    }
+  }
+
+  // Handle Max Notes menu (Shift+7)
+  if (state.inMaxNotesMenu) {
+    if (encoderValue != 0) {
+      if (encoderValue > 0) {
+        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord + 1, 1, 8);
+      } else {
+        settings.maxNotesPerChord = constrain(settings.maxNotesPerChord - 1, 1, 8);
+      }
+      encoderValue = 0;
+      saveSettings();
     }
   }
 
@@ -858,7 +880,11 @@ void updateMIDI() {
       if (padStates[i] && !previousPadStates[i]) {
         playChord(i);
       } else if (!padStates[i] && previousPadStates[i]) {
-        stopChord(i);
+        // Only stop chord if HOLD mode is off
+        if (!state.holdMode) {
+          stopChord(i);
+        }
+        // If HOLD is on, chord keeps playing (activePad remains set)
       }
     }
   }
@@ -1456,6 +1482,8 @@ void updateDisplay() {
     drawSettingsScreen();
   } else if (state.inArpSettings) {
     drawArpSettingsScreen();
+  } else if (state.inMaxNotesMenu) {
+    drawMaxNotesScreen();
   } else if (state.inEditMode) {
     drawEditScreen();
   } else {
@@ -1543,6 +1571,30 @@ void drawArpSettingsScreen() {
   display.setTextSize(1);
   display.setCursor(0, 56);
   display.print("Rotate=Adj Click=Next");
+}
+
+void drawMaxNotesScreen() {
+  // Header
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("MAX NOTES");
+
+  // Big number in center
+  display.setTextSize(4);
+  display.setCursor(52, 18);
+  display.print(settings.maxNotesPerChord);
+
+  // Visual indicator - dots showing max notes
+  display.setTextSize(1);
+  int dotY = 54;
+  int startX = 64 - (settings.maxNotesPerChord * 8 / 2);
+  for (int i = 0; i < settings.maxNotesPerChord; i++) {
+    display.fillCircle(startX + i * 8, dotY, 3, WHITE);
+  }
+  // Show empty slots
+  for (int i = settings.maxNotesPerChord; i < 8; i++) {
+    display.drawCircle(startX + i * 8, dotY, 3, WHITE);
+  }
 }
 
 // Draw 8-bit piano keyboard with active notes highlighted (1 octave)
