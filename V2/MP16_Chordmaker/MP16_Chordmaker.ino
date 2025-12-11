@@ -535,7 +535,6 @@ void processButtonPresses() {
         encoderValue = 0;
       }
     }
-    previousEncoderState = encoderState;
     // DON'T return - allow chord pads to work while in arp settings!
   }
 
@@ -1407,30 +1406,29 @@ void updateVisuals() {
     pixels.setPixelColor(pixelIndex, color);
   }
 
-  // Column 4 buttons (3, 7, 11) - special functions
-  // Button 3 = settings toggle
+  // Column 4 buttons (3, 7, 11) - special functions with distinct colors
+  // Button 3 = settings toggle (YELLOW - fast blink when active)
   if (state.inSettingsMode) {
-    float pulse = (sin(millis() * 0.01) + 1) * 0.5;
-    pixels.setPixelColor(4, dimColor(0xFFFF00, 0.3 + pulse * 0.7));  // Yellow pulse
+    float blink = ((millis() / 150) % 2) ? 1.0 : 0.4;
+    pixels.setPixelColor(4, dimColor(0xFFFF00, blink));  // Yellow hard blink
   } else {
-    pixels.setPixelColor(4, dimColor(0xFFFF00, 0.2));  // Dim yellow
+    pixels.setPixelColor(4, dimColor(0xFFFF00, 0.15));  // Dim yellow
   }
 
-  // Button 7 = HOLD toggle
+  // Button 7 = HOLD toggle (MAGENTA - fastest blink when active)
   if (state.holdMode) {
-    // Fast, sharp blink (square wave feel) - more aggressive
     float blink = ((millis() / 100) % 2) ? 1.0 : 0.5;
-    pixels.setPixelColor(8, dimColor(0xFF00FF, blink));  // Magenta hard blink when active
+    pixels.setPixelColor(8, dimColor(0xFF00FF, blink));  // Magenta hard blink
   } else {
     pixels.setPixelColor(8, dimColor(0xFF00FF, 0.15));  // Dim magenta
   }
 
-  // Button 11 = arp settings toggle
+  // Button 11 = arp settings toggle (CYAN - medium blink when active)
   if (state.inArpSettings) {
-    float pulse = (sin(millis() * 0.01) + 1) * 0.5;
-    pixels.setPixelColor(12, dimColor(0x00FFFF, 0.3 + pulse * 0.7));  // Cyan pulse
+    float blink = ((millis() / 200) % 2) ? 1.0 : 0.4;
+    pixels.setPixelColor(12, dimColor(0x00FFFF, blink));  // Cyan hard blink
   } else {
-    pixels.setPixelColor(12, dimColor(0x00FFFF, 0.2));  // Dim cyan
+    pixels.setPixelColor(12, dimColor(0x00FFFF, 0.15));  // Dim cyan
   }
 
   // Bottom row controls
