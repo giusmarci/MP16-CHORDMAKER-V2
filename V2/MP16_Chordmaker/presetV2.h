@@ -20,110 +20,201 @@ struct PadV2 {
   ChordV2 chord;
 };
 
-// 9 Default Chord Presets for V2
-// Musical progression: I - ii - iii - IV - V - vi - vii° - I(8ve) - V/V
-// In C Major: C - Dm - Em - F - G - Am - Bdim - C(8ve) - D
+// Preset bank info
+struct PresetBank {
+  const char* name;                // Bank name (max 8 chars for display)
+  const char* chordNames[9];       // Names for each chord
+};
 
-ChordV2 presetV2[9] = {
-  // Chord 1: C Major (I) - Rich voicing
+// Number of preset banks
+#define NUM_PRESET_BANKS 6
+
+// Bank names and chord names
+const PresetBank presetBankInfo[NUM_PRESET_BANKS] = {
+  // 0: DEFAULT - Diatonic progression
   {
-    .rootOffset = 0,
-    .intervals = {0, 4, 7, 12, 16, 19, 24, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, 0, -10, -10, -15, 10},
-    .isActive = {true, true, true, true, false, false, false, true},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
+    "DEFAULT",
+    {"C", "Dm", "Em", "F", "G", "Am", "Bdim", "G7", "Cmaj7"}
   },
-
-  // Chord 2: D Minor (ii)
+  // 1: JAZZ - ii-V-I voicings with extensions
   {
-    .rootOffset = 2,
-    .intervals = {0, 3, 7, 12, 15, 19, 24, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, 0, -10, -10, -15, 10},
-    .isActive = {true, true, true, true, false, false, false, false},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
+    "JAZZ",
+    {"Dm9", "G13", "Cmaj9", "Fmaj7", "Bm7b5", "E7alt", "Am9", "D7#11", "Gm7"}
   },
-
-  // Chord 3: E Minor (iii)
+  // 2: POP - Modern pop progressions
   {
-    .rootOffset = 4,
-    .intervals = {0, 3, 7, 12, 15, 19, 24, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, 0, -10, -10, -15, 10},
-    .isActive = {true, true, true, true, false, false, false, false},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
+    "POP",
+    {"C", "G", "Am", "F", "Csus4", "Em", "Dm7", "Gsus4", "Fadd9"}
   },
-
-  // Chord 4: F Major (IV)
+  // 3: LOFI - Chill jazzy hip-hop chords
   {
-    .rootOffset = 5,
-    .intervals = {0, 4, 7, 12, 16, 19, 24, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, 0, -10, -10, -15, 10},
-    .isActive = {true, true, true, true, false, false, false, false},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
+    "LOFI",
+    {"Cmaj9", "Am7", "Dm9", "G7", "Em7", "Fmaj7", "Bm7b5", "E7", "Am9"}
   },
-
-  // Chord 5: G Major (V) - Dominant
+  // 4: EDM - Big synth chords & power
   {
-    .rootOffset = 7,
-    .intervals = {0, 4, 7, 12, 16, 19, 24, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, 0, -10, -10, -15, 10},
-    .isActive = {true, true, true, true, false, false, false, false},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
+    "EDM",
+    {"C5", "G5", "Am5", "F5", "Cstab", "Gsus", "Fmaj", "Am", "Em"}
   },
-
-  // Chord 6: A Minor (vi)
+  // 5: SAD - Melancholic minor progressions
   {
-    .rootOffset = 9,
-    .intervals = {0, 3, 7, 12, 15, 19, 24, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, 0, -10, -10, -15, 10},
-    .isActive = {true, true, true, true, false, false, false, false},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
-  },
-
-  // Chord 7: B Diminished (vii°)
-  {
-    .rootOffset = 11,
-    .intervals = {0, 3, 6, 12, 15, 18, 24, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, 0, -10, -10, -15, 10},
-    .isActive = {true, true, true, false, false, false, false, false},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
-  },
-
-  // Chord 8: G7 (V7) - Dominant 7th for resolution
-  {
-    .rootOffset = 7,
-    .intervals = {0, 4, 7, 10, 12, 16, 19, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, -5, 0, -10, -10, 10},
-    .isActive = {true, true, true, true, false, false, false, false},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
-  },
-
-  // Chord 9: C Major 7 (Imaj7) - Jazz voicing
-  {
-    .rootOffset = 0,
-    .intervals = {0, 4, 7, 11, 14, 16, 19, 0},
-    .octaveModifiers = {0, 0, 0, 0, 0, 0, 0, -1},
-    .velocityModifiers = {0, -5, -5, -5, -10, -10, -10, 10},
-    .isActive = {true, true, true, true, true, false, false, false},
-    .channel = {0, 0, 0, 0, 0, 0, 0, 0}
+    "SAD",
+    {"Am", "F", "C", "G", "Dm", "E", "Am7", "Fmaj7", "Em"}
   }
 };
 
-// Alternative preset banks (can be selected later)
-// Pop Progression: I - V - vi - IV (C - G - Am - F)
-const int popProgression[4] = {0, 4, 5, 3};  // Pad indices
+// ============================================================================
+// PRESET BANK 0: DEFAULT - Diatonic (your original - sounds amazing!)
+// ============================================================================
+const ChordV2 presetDefault[9] = {
+  // C Major (I)
+  {0, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, -10, -10, -15, 10}, {true, true, true, true, false, false, false, true}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D Minor (ii)
+  {2, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, -10, -10, -15, 10}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E Minor (iii)
+  {4, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, -10, -10, -15, 10}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F Major (IV)
+  {5, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, -10, -10, -15, 10}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G Major (V)
+  {7, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, -10, -10, -15, 10}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // A Minor (vi)
+  {9, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, -10, -10, -15, 10}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // B Diminished (vii°)
+  {11, {0, 3, 6, 12, 15, 18, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, -10, -10, -15, 10}, {true, true, true, false, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G7 (V7)
+  {7, {0, 4, 7, 10, 12, 16, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, -5, 0, -10, -10, 10}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Cmaj7 (Imaj7)
+  {0, {0, 4, 7, 11, 14, 16, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, -5, -10, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
 
-// Jazz ii-V-I progression
-const int jazzProgression[3] = {1, 4, 0};    // Dm7 - G7 - Cmaj7
+// ============================================================================
+// PRESET BANK 1: JAZZ - Rich extended voicings
+// ============================================================================
+const ChordV2 presetJazz[9] = {
+  // Dm9 (ii) - Root, b3, 5, b7, 9
+  {2, {0, 3, 7, 10, 14, 17, 21, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, 0, -10, -15, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G13 (V) - Root, 3, b7, 9, 13
+  {7, {0, 4, 10, 14, 21, 7, 17, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, -5, -5, -10, -15, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Cmaj9 (I) - Root, 3, 5, 7, 9
+  {0, {0, 4, 7, 11, 14, 16, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, 0, -10, -15, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Fmaj7 (IV)
+  {5, {0, 4, 7, 11, 12, 16, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, 0, -10, -15, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Bm7b5 (vii half-dim)
+  {11, {0, 3, 6, 10, 12, 15, 18, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, 0, -10, -15, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E7alt (V/vi) - altered dominant
+  {4, {0, 4, 8, 10, 13, 15, 18, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, -5, -5, -10, -10, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am9 (vi)
+  {9, {0, 3, 7, 10, 14, 15, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, 0, -10, -15, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // D7#11 - Lydian dominant
+  {2, {0, 4, 7, 10, 18, 14, 21, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, -5, 0, -15, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Gm7 (iv borrowed)
+  {7, {0, 3, 7, 10, 12, 15, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, 0, -10, -15, 0}, {true, true, true, true, false, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
 
-// Sad progression: vi - IV - I - V (Am - F - C - G)
-const int sadProgression[4] = {5, 3, 0, 4};
+// ============================================================================
+// PRESET BANK 2: POP - Modern pop/rock progressions
+// ============================================================================
+const ChordV2 presetPop[9] = {
+  // C (I)
+  {0, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 5, -5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G (V)
+  {7, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 5, -5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am (vi)
+  {9, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 5, -5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F (IV)
+  {5, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 5, -5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Csus4
+  {0, {0, 5, 7, 12, 17, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 5, -5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em (iii)
+  {4, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 5, -5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Dm7 (ii7)
+  {2, {0, 3, 7, 10, 12, 15, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, 5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Gsus4
+  {7, {0, 5, 7, 12, 17, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 5, -5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Fadd9
+  {5, {0, 4, 7, 14, 12, 16, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -5, 0, 5, -10, -10, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// ============================================================================
+// PRESET BANK 3: LOFI - Chill hip-hop jazz chords
+// ============================================================================
+const ChordV2 presetLofi[9] = {
+  // Cmaj9 - dreamy
+  {0, {0, 4, 7, 11, 14, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 0, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am7 - melancholic
+  {9, {0, 3, 7, 10, 12, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Dm9 - smooth
+  {2, {0, 3, 7, 10, 14, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 0, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G7 - tension
+  {7, {0, 4, 7, 10, 14, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 0, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em7
+  {4, {0, 3, 7, 10, 12, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Fmaj7 - warm
+  {5, {0, 4, 7, 11, 12, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Bm7b5 - dark
+  {11, {0, 3, 6, 10, 12, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E7 - bluesy
+  {4, {0, 4, 7, 10, 12, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am9 - nostalgic
+  {9, {0, 3, 7, 10, 14, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -10, -15, -5, 0, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// ============================================================================
+// PRESET BANK 4: EDM - Big powerful chords
+// ============================================================================
+const ChordV2 presetEDM[9] = {
+  // C5 Power + octave
+  {0, {0, 7, 12, 19, 24, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, 0, 0, 0, -5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G5 Power
+  {7, {0, 7, 12, 19, 24, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, 0, 0, 0, -5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am5 Power
+  {9, {0, 7, 12, 19, 24, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, 0, 0, 0, -5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F5 Power
+  {5, {0, 7, 12, 19, 24, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, 0, 0, 0, -5, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C Stab (big major with octaves)
+  {0, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, 1}, {5, 0, 0, 5, 0, 0, -5, 10}, {true, true, true, true, true, true, true, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Gsus Big
+  {7, {0, 5, 7, 12, 17, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {5, 0, 0, 5, 0, 0, -5, 0}, {true, true, true, true, true, true, true, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F Major Big
+  {5, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, 1}, {5, 0, 0, 5, 0, 0, -5, 10}, {true, true, true, true, true, true, true, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am Big
+  {9, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, 1}, {5, 0, 0, 5, 0, 0, -5, 10}, {true, true, true, true, true, true, true, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em Big
+  {4, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, 1}, {5, 0, 0, 5, 0, 0, -5, 10}, {true, true, true, true, true, true, true, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// ============================================================================
+// PRESET BANK 5: SAD - Melancholic minor progressions
+// ============================================================================
+const ChordV2 presetSad[9] = {
+  // Am - root
+  {9, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, 5, -5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // F - bVI
+  {5, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, 5, -5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // C - bIII
+  {0, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, 5, -5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // G - bVII
+  {7, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, 5, -5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Dm - iv
+  {2, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, 5, -5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // E (V of Am) - tension/hope
+  {4, {0, 4, 7, 12, 16, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, 5, -5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Am7 - deeper sadness
+  {9, {0, 3, 7, 10, 12, 15, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, 5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Fmaj7 - bittersweet
+  {5, {0, 4, 7, 11, 12, 16, 19, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, -5, 5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}},
+  // Em - relative minor feel
+  {4, {0, 3, 7, 12, 15, 19, 24, 0}, {0, 0, 0, 0, 0, 0, 0, -1}, {0, -5, -10, 5, -5, -10, -15, 10}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
+// Array of pointers to all preset banks
+const ChordV2* presetBanks[NUM_PRESET_BANKS] = {
+  presetDefault,
+  presetJazz,
+  presetPop,
+  presetLofi,
+  presetEDM,
+  presetSad
+};
 
 #endif // PRESETS_V2_H

@@ -114,6 +114,7 @@ struct SettingsV2 {
   int ledBrightness = 100;
   int deviceMode = 1;             // 0 = Legacy, 1 = V2
   bool midiClockSync = true;      // Sync arp to external MIDI clock (default ON)
+  int presetBank = 0;             // Current preset bank (0-5)
 };
 
 // V2 Runtime state
@@ -129,7 +130,8 @@ struct RuntimeState {
   int editNoteIndex = 0;
   int activePad = -1;             // Currently playing pad (-1 = none)
   bool introComplete = false;
-  bool inSettingsMode = false;    // MIDI channel settings mode
+  bool inSettingsMode = false;    // Settings mode
+  int settingsPage = 0;           // 0=Channel, 1=Clock, 2=Bank
 };
 
 // MIDI Clock state
@@ -367,6 +369,7 @@ void processButtonPresses() {
   // Check for Shift + Button 3 to enter/exit settings mode
   if (shiftState && keyStates[3] && !previousKeyStates[3]) {
     state.inSettingsMode = !state.inSettingsMode;
+    state.settingsPage = 0;  // Start on first page
     if (!state.inSettingsMode) {
       // Exiting settings - save
       saveSettings();
@@ -374,29 +377,65 @@ void processButtonPresses() {
     return;
   }
 
-  // Handle settings mode
+  // Handle settings mode (3 pages: Channel, Clock, Bank)
   if (state.inSettingsMode) {
-    // Encoder changes MIDI output channel A (main channel)
-    if (encoderValue > 0) {
-      settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
-      encoderValue = 0;
-    } else if (encoderValue < 0) {
-      settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
-      encoderValue = 0;
+    // Encoder click cycles through settings pages or exits
+    if (encoderState && !previousEncoderState) {
+      state.settingsPage++;
+      if (state.settingsPage > 2) {
+        // Exit settings after last page
+        saveSettings();
+        loadPresetBank();  // Apply any bank changes
+        state.inSettingsMode = false;
+        state.settingsPage = 0;
+      }
     }
 
-    // Encoder click saves and exits
-    if (encoderState && !previousEncoderState) {
-      saveSettings();
-      state.inSettingsMode = false;
+    // Encoder rotation changes current setting
+    if (encoderValue != 0) {
+      switch (state.settingsPage) {
+        case 0:  // MIDI Channel
+          if (encoderValue > 0) {
+            settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
+          } else {
+            settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
+          }
+          break;
+        case 1:  // Clock Sync
+          settings.midiClockSync = !settings.midiClockSync;
+          break;
+        case 2:  // Preset Bank
+          if (encoderValue > 0) {
+            settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
+          } else {
+            settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
+          }
+          break;
+      }
+      encoderValue = 0;
     }
 
     // Exit settings when shift released
     if (!shiftState && previousShiftState) {
       saveSettings();
+      loadPresetBank();
       state.inSettingsMode = false;
     }
     return;
+  }
+
+  // Encoder changes preset bank when idle (not playing, not editing)
+  if (state.activePad < 0 && !state.inEditMode) {
+    if (encoderValue != 0) {
+      if (encoderValue > 0) {
+        settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
+      } else {
+        settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
+      }
+      encoderValue = 0;
+      loadPresetBank();
+      saveSettings();
+    }
   }
 
   // Handle chord pads (0-8)
@@ -969,68 +1008,99 @@ void updateDisplay() {
 }
 
 void drawMainScreen() {
-  // Big note display when playing
+  // Big chord display when playing
   if (state.activePad >= 0) {
-    int chordRoot = settings.rootNote + pads[state.activePad].chord.rootOffset + (state.currentOctave * 12);
-    chordRoot = constrain(chordRoot, 0, 127);
+    // Get chord name from preset bank info
+    const char* chordName = presetBankInfo[settings.presetBank].chordNames[state.activePad];
 
-    // Giant note name
+    // GIANT chord name - full screen
     display.setTextSize(4);
-    display.setCursor(4, 4);
-    display.print(midiNoteNames[chordRoot]);
 
-    // Pad number in corner
-    display.setTextSize(2);
-    display.setCursor(100, 4);
+    // Center the text based on length
+    int nameLen = strlen(chordName);
+    int xPos;
+    if (nameLen <= 2) {
+      xPos = 40;
+    } else if (nameLen <= 4) {
+      xPos = 16;
+    } else {
+      xPos = 4;
+      display.setTextSize(3);  // Smaller for long names
+    }
+
+    display.setCursor(xPos, 8);
+    display.print(chordName);
+
+    // Pad number small in corner
+    display.setTextSize(1);
+    display.setCursor(116, 4);
     display.print(state.activePad + 1);
 
-    // Draw active notes as bars
+    // Bank name small
+    display.setCursor(4, 4);
+    display.print(presetBankInfo[settings.presetBank].name);
+
+    // Draw active notes as bars at bottom
     ChordV2& chord = pads[state.activePad].chord;
     int barX = 4;
     for (int i = 0; i < 8; i++) {
       if (chord.isActive[i]) {
-        int barHeight = 12 + (i * 2);
+        int barHeight = 10 + (chord.intervals[i] / 4);
+        barHeight = constrain(barHeight, 8, 20);
         display.fillRect(barX, 64 - barHeight, 12, barHeight, WHITE);
       } else {
-        display.drawRect(barX, 52, 12, 12, WHITE);
+        display.drawRect(barX, 56, 12, 8, WHITE);
       }
       barX += 15;
     }
-  } else {
-    // Idle state - minimal display
-    display.setTextSize(3);
-    display.setCursor(8, 4);
-    display.print("READY");
 
-    // Show current settings small
+    // Show arp indicator if active
+    if (state.arpRate > 0) {
+      display.setTextSize(1);
+      display.setCursor(100, 56);
+      display.print("ARP");
+    }
+  } else {
+    // Idle state - show preset bank BIG
+    display.setTextSize(3);
+
+    // Center bank name
+    const char* bankName = presetBankInfo[settings.presetBank].name;
+    int nameLen = strlen(bankName);
+    int xPos = 64 - (nameLen * 9);  // Approximate centering
+    xPos = max(4, xPos);
+
+    display.setCursor(xPos, 4);
+    display.print(bankName);
+
+    // Show current settings
     display.setTextSize(1);
-    display.setCursor(4, 36);
+    display.setCursor(4, 32);
     display.print("CH:");
     display.print(settings.midiOutputAChannel + 1);
 
-    display.setCursor(44, 36);
+    display.setCursor(40, 32);
     display.print("OCT:");
     if (state.currentOctave >= 0) display.print("+");
     display.print(state.currentOctave);
 
-    display.setCursor(88, 36);
+    display.setCursor(80, 32);
     display.print("ARP:");
     display.print(arpRateNames[state.arpRate]);
 
-    // Show clock sync indicator
-    if (externalClockActive) {
-      display.setCursor(116, 36);
-      display.print("*");  // Asterisk when synced
+    // Clock sync indicator
+    if (settings.midiClockSync) {
+      display.setCursor(4, 42);
+      display.print("CLK:");
+      display.print(externalClockActive ? "SYNC" : "INT");
     }
 
     // Decorative line
-    display.drawFastHLine(4, 50, 120, WHITE);
     display.drawFastHLine(4, 52, 120, WHITE);
 
-    // Root note
-    display.setTextSize(2);
-    display.setCursor(4, 56);
-    display.print(midiNoteNames[settings.rootNote]);
+    // Bottom: hint to rotate encoder
+    display.setCursor(12, 56);
+    display.print("<< TURN TO CHANGE >>");
   }
 }
 
@@ -1094,49 +1164,74 @@ void drawEditScreen() {
 }
 
 void drawSettingsScreen() {
-  // Minimal settings - just channel number BIG
-
-  // "CH" label
-  display.setTextSize(2);
-  display.setCursor(8, 8);
-  display.print("CH");
-
-  // Giant channel number
-  display.setTextSize(4);
-  int chNum = settings.midiOutputAChannel + 1;
-  if (chNum < 10) {
-    display.setCursor(52, 16);
-  } else {
-    display.setCursor(36, 16);
+  // Page indicator dots at top
+  for (int i = 0; i < 3; i++) {
+    int x = 52 + (i * 12);
+    if (i == state.settingsPage) {
+      display.fillCircle(x, 4, 3, WHITE);
+    } else {
+      display.drawCircle(x, 4, 2, WHITE);
+    }
   }
-  display.print(chNum);
 
   // Animated arrows
   int arrowOffset = (millis() / 200) % 2;
+  display.fillTriangle(8, 32, 16 + arrowOffset, 24, 16 + arrowOffset, 40, WHITE);
+  display.fillTriangle(120, 32, 112 - arrowOffset, 24, 112 - arrowOffset, 40, WHITE);
 
-  // Left arrow
-  display.fillTriangle(
-    8, 36,
-    16 + arrowOffset, 28,
-    16 + arrowOffset, 44,
-    WHITE
-  );
+  switch (state.settingsPage) {
+    case 0:  // MIDI Channel
+      display.setTextSize(2);
+      display.setCursor(8, 12);
+      display.print("CH");
+      display.setTextSize(4);
+      if (settings.midiOutputAChannel + 1 < 10) {
+        display.setCursor(52, 20);
+      } else {
+        display.setCursor(36, 20);
+      }
+      display.print(settings.midiOutputAChannel + 1);
+      // Bottom label
+      display.fillRect(0, 56, 128, 8, WHITE);
+      display.setTextColor(BLACK);
+      display.setTextSize(1);
+      display.setCursor(28, 57);
+      display.print("MIDI CHANNEL");
+      display.setTextColor(WHITE);
+      break;
 
-  // Right arrow
-  display.fillTriangle(
-    120, 36,
-    112 - arrowOffset, 28,
-    112 - arrowOffset, 44,
-    WHITE
-  );
+    case 1:  // Clock Sync
+      display.setTextSize(2);
+      display.setCursor(8, 12);
+      display.print("CLK");
+      display.setTextSize(3);
+      display.setCursor(32, 24);
+      display.print(settings.midiClockSync ? "ON" : "OFF");
+      // Bottom label
+      display.fillRect(0, 56, 128, 8, WHITE);
+      display.setTextColor(BLACK);
+      display.setTextSize(1);
+      display.setCursor(28, 57);
+      display.print("CLOCK SYNC");
+      display.setTextColor(WHITE);
+      break;
 
-  // Bottom bar
-  display.fillRect(0, 56, 128, 8, WHITE);
-  display.setTextColor(BLACK);
-  display.setTextSize(1);
-  display.setCursor(28, 57);
-  display.print("MIDI CHANNEL");
-  display.setTextColor(WHITE);
+    case 2:  // Preset Bank
+      display.setTextSize(2);
+      display.setCursor(8, 12);
+      display.print("BANK");
+      display.setTextSize(2);
+      display.setCursor(20, 32);
+      display.print(presetBankInfo[settings.presetBank].name);
+      // Bottom label
+      display.fillRect(0, 56, 128, 8, WHITE);
+      display.setTextColor(BLACK);
+      display.setTextSize(1);
+      display.setCursor(28, 57);
+      display.print("PRESET BANK");
+      display.setTextColor(WHITE);
+      break;
+  }
 }
 
 //================================ STORAGE ================================
@@ -1158,14 +1253,24 @@ void saveSettings() {
 }
 
 void initPadsFromPreset() {
+  loadPresetBank();
+}
+
+void loadPresetBank() {
+  // Constrain bank to valid range
+  settings.presetBank = constrain(settings.presetBank, 0, NUM_PRESET_BANKS - 1);
+
+  // Get pointer to selected bank
+  const ChordV2* bank = presetBanks[settings.presetBank];
+
   for (int i = 0; i < 9; i++) {
     pads[i].color = padColors[i];
     pads[i].triggerNote = settings.rootNote + i;
     pads[i].velocity = 100;
     pads[i].velocityVariation = 0;
 
-    // Copy preset chord
-    pads[i].chord = presetV2[i];
+    // Copy chord from selected bank
+    pads[i].chord = bank[i];
   }
 }
 
