@@ -1475,36 +1475,13 @@ void updateDisplay() {
 }
 
 void drawArpSettingsScreen() {
-  // Compact header with page dots
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.print("ARP");
+  // Marquee style single-item menu (same as settings)
+  // Items: Pattern, Gate, Swing, Humanize, Velocity, Octave, Mode
 
-  // Page indicator dots (7 pages)
-  for (int i = 0; i <= 6; i++) {
-    int x = 30 + i * 10;
-    if (i == state.arpSettingsPage) {
-      display.fillRect(x, 2, 6, 6, WHITE);
-    } else {
-      display.drawRect(x, 2, 6, 6, WHITE);
-    }
-  }
-
-  // Current arp rate on right
-  display.setCursor(100, 0);
-  display.print(arpRateNames[state.arpRate]);
-
-  // Setting label (small)
-  display.setTextSize(1);
-  display.setCursor(0, 14);
-
-  const char* labels[7] = {"PATTERN", "GATE", "SWING", "HUMAN", "VEL", "OCT", "MODE"};
-  display.print(labels[state.arpSettingsPage]);
-
-  // Value (large, centered)
-  display.setTextSize(2);
+  const char* labels[7] = {"PATTERN", "GATE", "SWING", "HUMANIZE", "VELOCITY", "OCTAVE", "MODE"};
   char valueStr[16];
 
+  // Get current item's value
   switch (state.arpSettingsPage) {
     case 0: // Pattern
       snprintf(valueStr, sizeof(valueStr), "%s", arpPatternNames[settings.arpPattern]);
@@ -1529,53 +1506,145 @@ void drawArpSettingsScreen() {
       break;
   }
 
-  int len = strlen(valueStr);
-  int xPos = 64 - (len * 6);  // Center
-  display.setCursor(xPos, 28);
+  // Label at top (small)
+  display.setTextSize(1);
+  int labelLen = strlen(labels[state.arpSettingsPage]);
+  int labelX = 64 - (labelLen * 3);
+  display.setCursor(labelX, 8);
+  display.print(labels[state.arpSettingsPage]);
+
+  // Value in center (BIG)
+  display.setTextSize(3);
+  int valLen = strlen(valueStr);
+  int valX = 64 - (valLen * 9);
+  display.setCursor(valX, 24);
   display.print(valueStr);
 
-  // Visual bar for percentage values
-  if (state.arpSettingsPage >= 1 && state.arpSettingsPage <= 4) {
-    int barVal = 0;
-    switch (state.arpSettingsPage) {
-      case 1: barVal = settings.arpGate; break;
-      case 2: barVal = settings.arpSwing; break;
-      case 3: barVal = settings.arpHumanize * 2; break;  // Scale 0-50 to 0-100
-      case 4: barVal = settings.arpVelocityVar * 2; break;
+  // Page dots at bottom (shows which setting - 7 pages)
+  int dotY = 56;
+  int dotSpacing = 10;
+  int dotsStartX = 64 - (7 * dotSpacing / 2) + 5;
+  for (int i = 0; i < 7; i++) {
+    int x = dotsStartX + (i * dotSpacing);
+    if (i == state.arpSettingsPage) {
+      display.fillCircle(x, dotY, 4, WHITE);
+    } else {
+      display.drawCircle(x, dotY, 3, WHITE);
     }
-    int barWidth = barVal * 120 / 100;
-    display.drawRect(4, 48, 120, 6, WHITE);
-    display.fillRect(4, 48, barWidth, 6, WHITE);
   }
-
-  // Bottom hint
-  display.setTextSize(1);
-  display.setCursor(0, 56);
-  display.print("Rotate=Adj Click=Next");
 }
 
 void drawMaxNotesScreen() {
-  // Header
+  // Header with value
   display.setTextSize(1);
-  display.setCursor(0, 0);
+  display.setCursor(40, 0);
   display.print("MAX NOTES");
 
-  // Big number in center
-  display.setTextSize(4);
-  display.setCursor(52, 18);
+  // Big number on right
+  display.setTextSize(3);
+  display.setCursor(100, 0);
   display.print(settings.maxNotesPerChord);
 
-  // Visual indicator - dots showing max notes (max 4)
+  // Show piano keyboard with active/inactive chord notes
+  // Get current chord (use pad 0 as reference, or activePad if playing)
+  int padIdx = (state.activePad >= 0) ? state.activePad : 0;
+  ChordV2& chord = pads[padIdx].chord;
+
+  // Count and collect all active note intervals
+  uint8_t allNotes[8];
+  uint8_t activeNotes[4];
+  int totalNotes = 0;
+  int shownNotes = 0;
+
+  for (int i = 0; i < 8; i++) {
+    if (chord.isActive[i]) {
+      int noteVal = (settings.rootNote + chord.rootOffset + chord.intervals[i]) % 12;
+      allNotes[totalNotes] = noteVal;
+      if (totalNotes < settings.maxNotesPerChord) {
+        activeNotes[shownNotes++] = noteVal;
+      }
+      totalNotes++;
+    }
+  }
+
+  // Draw piano keyboard
+  int startNote = (settings.rootNote / 12) * 12;
+  const int whiteKeyW = 16;
+  const int whiteKeyH = 34;
+  const int blackKeyW = 10;
+  const int blackKeyH = 20;
+  const int keyboardX = 8;
+  const int keyboardY = 22;
+
+  // Draw white keys (C D E F G A B)
+  int whiteKeyIndex = 0;
+  for (int note = 0; note < 12; note++) {
+    if (note == 0 || note == 2 || note == 4 || note == 5 || note == 7 || note == 9 || note == 11) {
+      int x = keyboardX + (whiteKeyIndex * whiteKeyW);
+
+      // Check if note is active (within max) or inactive (beyond max)
+      bool isActive = false;
+      bool isInactive = false;
+      for (int i = 0; i < shownNotes; i++) {
+        if (activeNotes[i] == note) isActive = true;
+      }
+      for (int i = shownNotes; i < totalNotes; i++) {
+        if (allNotes[i] == note) isInactive = true;
+      }
+
+      if (isActive) {
+        display.fillRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
+      } else if (isInactive) {
+        // Dimmed - dashed outline
+        display.drawRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
+        for (int dy = keyboardY + 2; dy < keyboardY + whiteKeyH - 2; dy += 4) {
+          display.drawPixel(x + whiteKeyW/2, dy, WHITE);
+        }
+      } else {
+        display.drawRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
+      }
+      whiteKeyIndex++;
+    }
+  }
+
+  // Draw black keys
+  const int blackKeyPositions[5] = {0, 1, 3, 4, 5};
+  const int blackNotes[5] = {1, 3, 6, 8, 10};
+
+  for (int i = 0; i < 5; i++) {
+    int x = keyboardX + (blackKeyPositions[i] * whiteKeyW) + whiteKeyW - (blackKeyW / 2);
+
+    bool isActive = false;
+    bool isInactive = false;
+    for (int j = 0; j < shownNotes; j++) {
+      if (activeNotes[j] == blackNotes[i]) isActive = true;
+    }
+    for (int j = shownNotes; j < totalNotes; j++) {
+      if (allNotes[j] == blackNotes[i]) isInactive = true;
+    }
+
+    if (isActive) {
+      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
+    } else if (isInactive) {
+      // Dimmed black key - dotted fill
+      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, BLACK);
+      display.drawRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
+      for (int dy = keyboardY + 2; dy < keyboardY + blackKeyH - 2; dy += 3) {
+        display.drawPixel(x + blackKeyW/2, dy, WHITE);
+      }
+    } else {
+      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, BLACK);
+      display.drawRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
+    }
+  }
+
+  // Bottom: show which notes are active vs cut off
   display.setTextSize(1);
-  int dotY = 54;
-  int startX = 64 - (4 * 10 / 2);  // Center 4 dots
-  for (int i = 0; i < settings.maxNotesPerChord; i++) {
-    display.fillCircle(startX + i * 10, dotY, 4, WHITE);
-  }
-  // Show empty slots (max 4)
-  for (int i = settings.maxNotesPerChord; i < 4; i++) {
-    display.drawCircle(startX + i * 10, dotY, 4, WHITE);
-  }
+  display.setCursor(0, 58);
+  display.print("Active:");
+  display.print(shownNotes);
+  display.print("/");
+  display.print(totalNotes);
 }
 
 // Draw 8-bit piano keyboard with active notes highlighted (1 octave)
@@ -1700,60 +1769,62 @@ void drawMainScreen() {
     }
 
   } else {
-    // IDLE state - clean minimal design
+    // IDLE state - 8-bit style with scale on top, root in center
+
+    // Top: Scale name centered
+    display.setTextSize(1);
+    int scaleLen = strlen(scaleNames[settings.scaleType]);
+    int scaleX = 64 - (scaleLen * 3);
+    display.setCursor(scaleX, 2);
+    display.print(scaleNames[settings.scaleType]);
 
     // Clock indicator dot (top right, blinks on beat)
     if (settings.midiClockSync) {
       if (clockPulseIndicator && (millis() - lastClockPulseTime < 100)) {
-        display.fillCircle(122, 4, 4, WHITE);
+        display.fillCircle(122, 5, 4, WHITE);
       } else if (externalClockActive) {
-        display.drawCircle(122, 4, 4, WHITE);
-      } else {
-        display.drawCircle(122, 4, 2, WHITE);
+        display.drawCircle(122, 5, 3, WHITE);
       }
     }
 
-    // Main content - Root + Scale centered
-    display.setTextSize(2);
+    // Center: Root note BIG 8-bit style
+    display.setTextSize(3);
+    const char* rootName = midiNoteNames[settings.rootNote];
+    int rootLen = strlen(rootName);
+    int rootX = 64 - (rootLen * 9);
+    display.setCursor(rootX, 20);
+    display.print(rootName);
 
-    // Build display string: "C4 Maj" or "F#3 Min"
-    char displayStr[16];
-    snprintf(displayStr, sizeof(displayStr), "%s %s",
-             midiNoteNames[settings.rootNote],
-             scaleNames[settings.scaleType]);
-
-    int strLen = strlen(displayStr);
-    int xPos = max(0, 64 - (strLen * 6));
-    display.setCursor(xPos, 18);
-    display.print(displayStr);
-
-    // Bottom bar: compact status
+    // Bottom bar: status indicators
     display.setTextSize(1);
 
-    // Left: octave with visual indicator
+    // Left: Octave as +1/-1 etc
     display.setCursor(0, 56);
-    if (state.currentOctave < 0) {
-      for (int i = 0; i > state.currentOctave; i--) display.print("<");
-    } else if (state.currentOctave > 0) {
-      for (int i = 0; i < state.currentOctave; i++) display.print(">");
+    if (state.currentOctave != 0) {
+      if (state.currentOctave > 0) {
+        display.print("+");
+      }
+      display.print(state.currentOctave);
     } else {
-      display.print("-");
+      display.print("0");
     }
 
     // Center-left: HOLD indicator
     if (state.holdMode) {
-      display.setCursor(30, 56);
+      display.setCursor(25, 56);
       display.print("HLD");
     }
 
     // Center: arp rate (if active)
     if (state.arpRate > 0) {
-      display.setCursor(60, 56);
+      display.setCursor(55, 56);
+      display.print("ARP");
       display.print(arpRateNames[state.arpRate]);
     }
 
     // Right: channel
-    display.setCursor(108, 56);
+    display.setCursor(105, 56);
+    display.print("CH");
     display.print(settings.midiOutputAChannel + 1);
   }
 }
