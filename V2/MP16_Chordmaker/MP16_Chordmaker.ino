@@ -594,35 +594,59 @@ void processButtonPresses() {
   if (!state.inEditMode && !state.inSettingsMode && !state.inArpSettings) {
     if (encoderValue != 0) {
       if (settings.playMode == 0) {
-        // SCALE mode: encoder changes root note (live!)
-        int oldRoot = settings.rootNote;
-        if (encoderValue > 0) {
-          settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
+        // SCALE mode: Shift+encoder = change scale, encoder alone = change root
+        if (shiftState) {
+          // Shift+encoder: change scale type
+          int oldScale = settings.scaleType;
+          if (encoderValue > 0) {
+            settings.scaleType = (settings.scaleType + 1) % NUM_SCALES;
+          } else {
+            settings.scaleType = (settings.scaleType + NUM_SCALES - 1) % NUM_SCALES;
+          }
+          // If playing, update live
+          if (state.activePad >= 0 && settings.scaleType != oldScale) {
+            if (state.arpRate > 0) {
+              stopCurrentArpNote();
+            }
+            stopChord(state.activePad);
+            loadScaleMode();
+            if (state.arpRate == 0) {
+              playChord(state.activePad);
+            }
+          } else {
+            loadCurrentMode();
+          }
         } else {
-          settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
-        }
-
-        // If playing, transpose live: stop old notes, play new
-        if (state.activePad >= 0 && settings.rootNote != oldRoot) {
-          // Stop any arp note first (uses stored MIDI note, no recalc needed)
-          if (state.arpRate > 0) {
-            stopCurrentArpNote();
+          // Encoder alone: change root note (live!)
+          int oldRoot = settings.rootNote;
+          if (encoderValue > 0) {
+            settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
+          } else {
+            settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
           }
 
-          // Stop current chord with old root
-          int tempRoot = settings.rootNote;
-          settings.rootNote = oldRoot;
-          stopChord(state.activePad);
-          settings.rootNote = tempRoot;
+          // If playing, transpose live: stop old notes, play new
+          if (state.activePad >= 0 && settings.rootNote != oldRoot) {
+            // Stop any arp note first (uses stored MIDI note, no recalc needed)
+            if (state.arpRate > 0) {
+              stopCurrentArpNote();
+            }
 
-          // Play chord with new root (arp will pick up on next tick)
-          loadScaleMode();  // Regenerate chord offsets
-          if (state.arpRate == 0) {
-            playChord(state.activePad);
+            // Stop current chord with old root
+            int tempRoot = settings.rootNote;
+            settings.rootNote = oldRoot;
+            stopChord(state.activePad);
+            settings.rootNote = tempRoot;
+
+            // Play chord with new root (arp will pick up on next tick)
+            loadScaleMode();  // Regenerate chord offsets
+            if (state.arpRate == 0) {
+              playChord(state.activePad);
+            }
+            // If arp is on, don't play chord - let arp handle it
+          } else {
+            loadCurrentMode();
           }
-          // If arp is on, don't play chord - let arp handle it
-        } else {
-          loadCurrentMode();
         }
       } else {
         // PRESET mode: encoder changes preset bank (only when idle)
