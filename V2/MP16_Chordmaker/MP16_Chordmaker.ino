@@ -202,6 +202,9 @@ void setup() {
   pinMode(RX_PIN, INPUT_PULLUP);
   Serial1.begin(31250);
 
+  // Seed random number generator for humanize/random patterns
+  randomSeed(analogRead(A0) + micros());
+
   if (!LittleFS.begin()) {
     // LittleFS failed - continue anyway
   }
@@ -925,26 +928,56 @@ int getPatternInterval(int baseInterval) {
   switch (settings.arpPattern) {
     case 0: // Straight
       return baseInterval;
-    case 1: // Swing
+    case 1: // Swing - delay odd notes by swing amount
       if (step % 2 == 1) {
-        return baseInterval + (settings.arpSwing - 50) * baseInterval / 100;
+        // Swing 50 = straight, 75 = strong swing, 100 = max shuffle
+        int swingDelay = (settings.arpSwing - 50) * baseInterval / 100;
+        return baseInterval + swingDelay;
       }
       return baseInterval;
-    case 2: // Dotted
+    case 2: // Dotted - long-short pattern
       return (step % 2 == 0) ? baseInterval * 3 / 2 : baseInterval / 2;
-    case 3: // Triplet
+    case 3: // Triplet - 2/3 speed (fits 3 notes in 2 beats)
       return baseInterval * 2 / 3;
-    case 4: // Humanize
-      return max(10, baseInterval + random(-settings.arpHumanize, settings.arpHumanize + 1));
-    case 5: // Stutter
+    case 4: // Humanize - random timing variation
+      {
+        int variation = random(-settings.arpHumanize, settings.arpHumanize + 1);
+        return max(10, baseInterval + variation);
+      }
+    case 5: // Stutter - short-long pattern
       return (step % 2 == 1) ? baseInterval / 4 : baseInterval * 3 / 4;
     default:
       return baseInterval;
   }
 }
 
+// Get pattern delay for external clock (applied after clock trigger)
+int getPatternDelay() {
+  int step = state.arpStepInPattern % 4;
+
+  switch (settings.arpPattern) {
+    case 0: // Straight - no delay
+      return 0;
+    case 1: // Swing - delay odd notes
+      if (step % 2 == 1) {
+        // At 120 BPM, 1/8 note = 250ms, so swing of 75 = 62ms delay
+        int baseTime = 250 * 120 / max(1, externalClockActive ? detectedBpm : settings.internalBpm);
+        return (settings.arpSwing - 50) * baseTime / 100;
+      }
+      return 0;
+    case 4: // Humanize - random delay
+      return random(0, settings.arpHumanize + 1);
+    default:
+      return 0;
+  }
+}
+
 // Track last clock position we triggered on (for proper grid sync)
 int lastArpTriggerClock = -1;
+
+// Pattern delay for external clock swing/humanize
+unsigned long pendingTriggerTime = 0;
+bool hasPendingTrigger = false;
 
 // Generate internal MIDI clock and send out when no external clock
 void updateInternalClock() {
@@ -995,14 +1028,26 @@ void updateArpeggiator() {
     int gateTime = max(15, baseInterval * settings.arpGate / 100);
 
     if (currentTime - arpNoteOnTime >= gateTime) {
-      stopArpNote(state.activePad, state.arpNoteIndex);
+      if (state.arpMode == 6) {
+        // Chord mode - stop all notes
+        stopChord(state.activePad);
+      } else {
+        stopArpNote(state.activePad, state.arpNoteIndex);
+      }
       arpGateOpen = false;
+      arpNotePlaying = false;
     }
   }
 
   bool shouldTrigger = false;
 
-  if (externalClockActive) {
+  // Check for pending delayed trigger (for swing/humanize with external clock)
+  if (hasPendingTrigger && currentTime >= pendingTriggerTime) {
+    hasPendingTrigger = false;
+    shouldTrigger = true;
+  }
+
+  if (externalClockActive && !hasPendingTrigger) {
     // QUANTIZED clock sync: trigger on clock grid positions
     // Use global midiClockCounter to stay locked to transport
     int divider = clockDividers[state.arpRate];
@@ -1014,11 +1059,20 @@ void updateArpeggiator() {
 
       // Trigger when we enter a new slot (quantized to grid)
       if (currentSlot != lastSlot || lastArpTriggerClock < 0) {
-        shouldTrigger = true;
         lastArpTriggerClock = midiClockCounter;
+
+        // Apply pattern delay (swing/humanize)
+        int patternDelay = getPatternDelay();
+        if (patternDelay > 0) {
+          // Schedule delayed trigger
+          pendingTriggerTime = currentTime + patternDelay;
+          hasPendingTrigger = true;
+        } else {
+          shouldTrigger = true;
+        }
       }
     }
-  } else {
+  } else if (!externalClockActive && !hasPendingTrigger) {
     // Internal timing - calculate based on internal BPM
     // arpTimings are for 120 BPM, scale to current internal BPM
     int baseInterval = arpTimings[state.arpRate] * 120 / settings.internalBpm;
@@ -1031,17 +1085,34 @@ void updateArpeggiator() {
   }
 
   if (shouldTrigger) {
-    // Stop previous note if gate still open
+    // Stop previous note(s) if gate still open
     if (arpGateOpen) {
-      stopArpNote(lastArpPad, lastArpNoteIndex);
+      if (state.arpMode == 6) {
+        // Chord mode - stop all notes
+        if (lastArpPad >= 0) {
+          stopChord(lastArpPad);
+        }
+      } else {
+        stopArpNote(lastArpPad, lastArpNoteIndex);
+      }
+      arpNotePlaying = false;
     }
 
-    // Advance to next note
-    advanceArpIndex(state.activePad);
+    // Advance to next note (unless Chord mode)
+    if (state.arpMode != 6) {
+      advanceArpIndex(state.activePad);
+    }
     state.arpStepInPattern++;
 
-    // Play new note
-    playArpNote(state.activePad, state.arpNoteIndex);
+    // Play note(s)
+    if (state.arpMode == 6) {
+      // Chord mode - play ALL notes at once (like strumming)
+      playChord(state.activePad);
+      lastArpPad = state.activePad;  // Track for gate close
+      arpNotePlaying = true;         // Mark as playing for gate logic
+    } else {
+      playArpNote(state.activePad, state.arpNoteIndex);
+    }
     arpNoteOnTime = currentTime;
     arpGateOpen = true;
   }
@@ -1127,15 +1198,22 @@ void advanceArpIndex(int pad) {
 
     case 7: // 2Oct (up through 2 octaves then reset)
       currentPos = (currentPos + 1) % activeCount;
-      // Octave stepping handled by arpOctaveStep
+      // Octave step advances when we wrap around
+      if (currentPos == 0 && prevPos != 0) {
+        state.arpOctaveStep++;
+        if (state.arpOctaveStep >= 2) {
+          state.arpOctaveStep = 0;  // Reset after 2 octaves
+        }
+      }
       break;
   }
 
   state.arpNoteIndex = activeIndices[currentPos];
 
-  // Advance octave step when wrapping around (completing a cycle)
+  // Advance octave step when wrapping around (for octave range setting)
   bool wrapped = (currentPos == 0 && prevPos != 0);
-  if (wrapped && settings.arpOctaveRange > 0) {
+  if (wrapped && settings.arpOctaveRange > 0 && state.arpMode != 7) {
+    // Mode 7 handles its own octave stepping above
     state.arpOctaveStep++;
   }
 }
@@ -1148,37 +1226,44 @@ void playArpNote(int pad, int noteIndex) {
   int note = settings.rootNote + chord.rootOffset + chord.intervals[noteIndex]
              + (chord.octaveModifiers[noteIndex] * 12) + (state.currentOctave * 12);
 
-  // Apply octave range modifier
-  // 0=Off, 1=+1, 2=+2, 3=+3, 4=+4, 5=+5, 6=-1, 7=-2, 8=+/-1
+  // Apply octave shift
   int octaveShift = 0;
-  switch (settings.arpOctaveRange) {
-    case 1: // +1 octave cycling
-      octaveShift = (state.arpOctaveStep % 2) * 12;
-      break;
-    case 2: // +2 octaves cycling
-      octaveShift = (state.arpOctaveStep % 3) * 12;
-      break;
-    case 3: // +3 octaves cycling
-      octaveShift = (state.arpOctaveStep % 4) * 12;
-      break;
-    case 4: // +4 octaves cycling
-      octaveShift = (state.arpOctaveStep % 5) * 12;
-      break;
-    case 5: // +5 octaves cycling
-      octaveShift = (state.arpOctaveStep % 6) * 12;
-      break;
-    case 6: // -1 octave cycling
-      octaveShift = (state.arpOctaveStep % 2) * -12;
-      break;
-    case 7: // -2 octaves cycling
-      octaveShift = (state.arpOctaveStep % 3) * -12;
-      break;
-    case 8: // +/-1 octave cycling
-      {
-        int cycle = state.arpOctaveStep % 3;
-        octaveShift = (cycle == 0) ? 0 : (cycle == 1) ? 12 : -12;
-      }
-      break;
+
+  // Mode 7 (2Oct) has its own octave handling
+  if (state.arpMode == 7) {
+    octaveShift = state.arpOctaveStep * 12;  // 0 or 12 (2 octaves)
+  } else if (settings.arpOctaveRange > 0) {
+    // Apply octave range modifier from settings
+    // 0=Off, 1=+1, 2=+2, 3=+3, 4=+4, 5=+5, 6=-1, 7=-2, 8=+/-1
+    switch (settings.arpOctaveRange) {
+      case 1: // +1 octave cycling
+        octaveShift = (state.arpOctaveStep % 2) * 12;
+        break;
+      case 2: // +2 octaves cycling
+        octaveShift = (state.arpOctaveStep % 3) * 12;
+        break;
+      case 3: // +3 octaves cycling
+        octaveShift = (state.arpOctaveStep % 4) * 12;
+        break;
+      case 4: // +4 octaves cycling
+        octaveShift = (state.arpOctaveStep % 5) * 12;
+        break;
+      case 5: // +5 octaves cycling
+        octaveShift = (state.arpOctaveStep % 6) * 12;
+        break;
+      case 6: // -1 octave cycling
+        octaveShift = (state.arpOctaveStep % 2) * -12;
+        break;
+      case 7: // -2 octaves cycling
+        octaveShift = (state.arpOctaveStep % 3) * -12;
+        break;
+      case 8: // +/-1 octave cycling
+        {
+          int cycle = state.arpOctaveStep % 3;
+          octaveShift = (cycle == 0) ? 0 : (cycle == 1) ? 12 : -12;
+        }
+        break;
+    }
   }
   note += octaveShift;
   note = constrain(note, 0, 127);
@@ -1226,6 +1311,9 @@ void stopCurrentArpNote() {
     lastArpNoteIndex = -1;
     lastArpNoteMidi = -1;
   }
+  // Clear any pending delayed trigger
+  hasPendingTrigger = false;
+  arpGateOpen = false;
 }
 
 //================================ CHORD PLAYBACK ================================
