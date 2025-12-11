@@ -115,7 +115,23 @@ struct SettingsV2 {
   int playMode = 0;               // 0 = SCALE mode (user sets root/scale), 1 = PRESET mode (jazz, pop, etc.)
   bool midiClockSync = true;      // Sync arp to external MIDI clock (default ON)
   int presetBank = 0;             // Current preset bank for PRESET mode (0-5)
+  // Arp settings
+  int arpPattern = 0;             // 0=straight, 1=swing, 2=dotted, 3=triplet, 4=humanize, 5=stutter
+  int arpGate = 80;               // Gate length as % (10-100)
+  int arpSwing = 50;              // Swing amount 0-100 (50=straight)
+  int arpHumanize = 0;            // Timing randomness 0-50ms
+  int arpVelocityVar = 0;         // Velocity variation 0-50
+  int arpOctaveRange = 0;         // 0=none, 1=+1oct, 2=+2oct, 3=-1oct, 4=+/-1oct
 };
+
+// Arp pattern names
+#define NUM_ARP_PATTERNS 6
+const char* arpPatternNames[NUM_ARP_PATTERNS] = {
+  "Straight", "Swing", "Dotted", "Triplet", "Human", "Stutter"
+};
+
+// Arp octave range names
+const char* arpOctaveNames[5] = {"Off", "+1", "+2", "-1", "+/-1"};
 
 // V2 Runtime state
 struct RuntimeState {
@@ -125,13 +141,17 @@ struct RuntimeState {
   bool arpDirection = true;       // true = up, false = down (for updown mode)
   int arpNoteIndex = 0;
   unsigned long lastArpTime = 0;
+  int arpStepInPattern = 0;       // For pattern-based timing
+  int arpOctaveStep = 0;          // Current octave in multi-octave mode
   bool inEditMode = false;
   int editingPad = -1;
   int editNoteIndex = 0;
   int activePad = -1;             // Currently playing pad (-1 = none)
   bool introComplete = false;
-  bool inSettingsMode = false;    // Settings mode
-  int settingsPage = 0;           // 0=Mode, 1=Root/Bank, 2=Scale(if scale mode), 3=Channel, 4=Clock
+  bool inSettingsMode = false;    // Settings mode (toggle with Shift+3)
+  bool inArpSettings = false;     // Arp settings mode (toggle with Shift+7)
+  int settingsPage = 0;           // Settings page index
+  int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave
 };
 
 // Play mode names
@@ -143,6 +163,8 @@ volatile int midiClockCounter = 0;          // Counts clock pulses (24 PPQN)
 volatile bool midiTransportRunning = false; // Start/Stop state
 volatile unsigned long lastClockTime = 0;   // For detecting clock presence
 bool externalClockActive = false;           // True when receiving valid external clock
+bool clockPulseIndicator = false;           // Blinks on each clock pulse for visual feedback
+unsigned long lastClockPulseTime = 0;       // For clock indicator timing
 
 // Arpeggiator note tracking (to prevent stuck notes)
 int lastArpPad = -1;                        // Which pad the last arp note was from
@@ -369,28 +391,103 @@ void checkKeys() {
 }
 
 void processButtonPresses() {
-  // Check for Shift + Button 3 to enter/exit settings mode
+  // Check for Shift + Button 3 to toggle settings mode (toggle, not hold)
   if (shiftState && keyStates[3] && !previousKeyStates[3]) {
+    if (state.inArpSettings) {
+      // Close arp settings first if open
+      state.inArpSettings = false;
+    }
     state.inSettingsMode = !state.inSettingsMode;
-    state.settingsPage = 0;  // Start on first page
+    state.settingsPage = 0;
     if (!state.inSettingsMode) {
-      // Exiting settings - save
       saveSettings();
     }
     return;
   }
 
-  // Handle settings mode
+  // Check for Shift + Button 7 to toggle arp settings mode
+  if (shiftState && keyStates[7] && !previousKeyStates[7]) {
+    if (state.inSettingsMode) {
+      // Close main settings first if open
+      state.inSettingsMode = false;
+    }
+    state.inArpSettings = !state.inArpSettings;
+    state.arpSettingsPage = 0;
+    if (!state.inArpSettings) {
+      saveSettings();
+    }
+    return;
+  }
+
+  // Handle arp settings mode (Shift+7)
+  // Pages: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=VelVar, 5=Octave, 6=Mode
+  if (state.inArpSettings) {
+    const int maxArpPages = 6;
+
+    // Encoder click cycles through arp settings pages
+    if (encoderState && !previousEncoderState) {
+      state.arpSettingsPage++;
+      if (state.arpSettingsPage > maxArpPages) {
+        saveSettings();
+        state.inArpSettings = false;
+        state.arpSettingsPage = 0;
+      }
+    }
+
+    // Encoder rotation changes current arp setting
+    if (encoderValue != 0) {
+      switch (state.arpSettingsPage) {
+        case 0: // Pattern
+          if (encoderValue > 0) {
+            settings.arpPattern = (settings.arpPattern + 1) % NUM_ARP_PATTERNS;
+          } else {
+            settings.arpPattern = (settings.arpPattern + NUM_ARP_PATTERNS - 1) % NUM_ARP_PATTERNS;
+          }
+          break;
+        case 1: // Gate
+          settings.arpGate = constrain(settings.arpGate + (encoderValue > 0 ? 10 : -10), 10, 100);
+          break;
+        case 2: // Swing
+          settings.arpSwing = constrain(settings.arpSwing + (encoderValue > 0 ? 5 : -5), 0, 100);
+          break;
+        case 3: // Humanize
+          settings.arpHumanize = constrain(settings.arpHumanize + (encoderValue > 0 ? 5 : -5), 0, 50);
+          break;
+        case 4: // Velocity Variation
+          settings.arpVelocityVar = constrain(settings.arpVelocityVar + (encoderValue > 0 ? 5 : -5), 0, 50);
+          break;
+        case 5: // Octave Range
+          if (encoderValue > 0) {
+            settings.arpOctaveRange = (settings.arpOctaveRange + 1) % 5;
+          } else {
+            settings.arpOctaveRange = (settings.arpOctaveRange + 4) % 5;
+          }
+          break;
+        case 6: // Arp Mode (Up/Down/UpDown/Random)
+          if (encoderValue > 0) {
+            state.arpMode = (state.arpMode + 1) % NUM_ARP_MODES;
+          } else {
+            state.arpMode = (state.arpMode + NUM_ARP_MODES - 1) % NUM_ARP_MODES;
+          }
+          break;
+      }
+      encoderValue = 0;
+    }
+
+    previousEncoderState = encoderState;
+    // DON'T return - allow chord pads to work while in arp settings!
+  }
+
+  // Handle main settings mode
   // SCALE mode pages: 0=Mode, 1=Root, 2=Scale, 3=Channel, 4=Clock
   // PRESET mode pages: 0=Mode, 1=Bank, 2=Channel, 3=Clock
   if (state.inSettingsMode) {
-    int maxPages = (settings.playMode == 0) ? 4 : 3;  // SCALE has more pages
+    int maxPages = (settings.playMode == 0) ? 4 : 3;
 
     // Encoder click cycles through settings pages or exits
     if (encoderState && !previousEncoderState) {
       state.settingsPage++;
       if (state.settingsPage > maxPages) {
-        // Exit settings after last page
         saveSettings();
         loadCurrentMode();
         state.inSettingsMode = false;
@@ -470,26 +567,44 @@ void processButtonPresses() {
     return;
   }
 
-  // Encoder changes when idle (not playing, not editing)
-  if (state.activePad < 0 && !state.inEditMode) {
+  // Encoder changes root note (works while playing too for live transposition!)
+  if (!state.inEditMode && !state.inSettingsMode && !state.inArpSettings) {
     if (encoderValue != 0) {
       if (settings.playMode == 0) {
-        // SCALE mode: encoder changes root note
+        // SCALE mode: encoder changes root note (live!)
+        int oldRoot = settings.rootNote;
         if (encoderValue > 0) {
           settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
         } else {
           settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
         }
-      } else {
-        // PRESET mode: encoder changes preset bank
-        if (encoderValue > 0) {
-          settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
+
+        // If playing, transpose live: stop old notes, play new
+        if (state.activePad >= 0 && settings.rootNote != oldRoot) {
+          // Stop current chord with old root
+          int tempRoot = settings.rootNote;
+          settings.rootNote = oldRoot;
+          stopChord(state.activePad);
+          settings.rootNote = tempRoot;
+
+          // Play chord with new root
+          loadScaleMode();  // Regenerate chord offsets
+          playChord(state.activePad);
         } else {
-          settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
+          loadCurrentMode();
+        }
+      } else {
+        // PRESET mode: encoder changes preset bank (only when idle)
+        if (state.activePad < 0) {
+          if (encoderValue > 0) {
+            settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
+          } else {
+            settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
+          }
+          loadCurrentMode();
         }
       }
       encoderValue = 0;
-      loadCurrentMode();
       saveSettings();
     }
   }
@@ -594,7 +709,13 @@ void updateMIDI() {
         case 0xF8:  // MIDI Clock (24 PPQN)
           midiClockReceived = true;
           midiClockCounter++;
+          arpClockCount++;  // Count for arpeggiator sync
           lastClockTime = millis();
+          // Visual indicator - pulse every beat (every 24 clocks)
+          if (midiClockCounter % 24 == 0) {
+            clockPulseIndicator = true;
+            lastClockPulseTime = millis();
+          }
           break;
         case 0xFA:  // Start
           midiTransportRunning = true;
@@ -641,7 +762,12 @@ void updateMIDI() {
     if (status == 0xF8) {
       midiClockReceived = true;
       midiClockCounter++;
+      arpClockCount++;  // Count for arpeggiator sync
       lastClockTime = millis();
+      if (midiClockCounter % 24 == 0) {
+        clockPulseIndicator = true;
+        lastClockPulseTime = millis();
+      }
     } else if (status == 0xFA) {
       midiTransportRunning = true;
       midiClockCounter = 0;
@@ -652,6 +778,11 @@ void updateMIDI() {
     } else {
       processIncomingMIDI(status, data1, data2);
     }
+  }
+
+  // Reset clock pulse indicator after display time
+  if (clockPulseIndicator && (millis() - lastClockPulseTime > 100)) {
+    clockPulseIndicator = false;
   }
 
   // Process pad state changes (only when arp is off)
@@ -728,8 +859,40 @@ const int clockDividers[7] = {
   12,  // 1/8 note = 12 clocks
   6,   // 1/16 note = 6 clocks
   3,   // 1/32 note = 3 clocks
-  1    // 1/64 note = 1 clock (every pulse... very fast)
+  2    // 1/64 note = 2 clocks
 };
+
+// For gate timing
+unsigned long arpNoteOnTime = 0;
+bool arpGateOpen = false;
+
+// Clock-synced arp tracking - SIMPLE counter approach
+volatile int arpClockCount = 0;  // Counts clocks since last arp trigger
+
+// Calculate interval with pattern modifiers (for internal timing)
+int getPatternInterval(int baseInterval) {
+  int step = state.arpStepInPattern % 4;
+
+  switch (settings.arpPattern) {
+    case 0: // Straight
+      return baseInterval;
+    case 1: // Swing
+      if (step % 2 == 1) {
+        return baseInterval + (settings.arpSwing - 50) * baseInterval / 100;
+      }
+      return baseInterval;
+    case 2: // Dotted
+      return (step % 2 == 0) ? baseInterval * 3 / 2 : baseInterval / 2;
+    case 3: // Triplet
+      return baseInterval * 2 / 3;
+    case 4: // Humanize
+      return max(10, baseInterval + random(-settings.arpHumanize, settings.arpHumanize + 1));
+    case 5: // Stutter
+      return (step % 2 == 1) ? baseInterval / 4 : baseInterval * 3 / 4;
+    default:
+      return baseInterval;
+  }
+}
 
 void updateArpeggiator() {
   if (state.arpRate == 0 || state.activePad < 0) {
@@ -742,21 +905,38 @@ void updateArpeggiator() {
   bool clockPresent = (currentTime - lastClockTime) < 500;
   externalClockActive = clockPresent && settings.midiClockSync;
 
+  // Handle gate off (note release before next trigger)
+  if (arpGateOpen && arpNotePlaying) {
+    int baseInterval = externalClockActive ? 80 : arpTimings[state.arpRate];
+    int gateTime = max(15, baseInterval * settings.arpGate / 100);
+
+    if (currentTime - arpNoteOnTime >= gateTime) {
+      stopArpNote(state.activePad, state.arpNoteIndex);
+      arpGateOpen = false;
+    }
+  }
+
   bool shouldTrigger = false;
 
   if (externalClockActive) {
-    // Sync to external MIDI clock
-    if (midiClockReceived) {
-      midiClockReceived = false;
+    // SIMPLE clock sync: count clocks, trigger when we reach the divider
+    int divider = clockDividers[state.arpRate];
 
-      int divider = clockDividers[state.arpRate];
-      if (divider > 0 && (midiClockCounter % divider) == 0) {
-        shouldTrigger = true;
-      }
+    // Apply swing for odd steps
+    if (settings.arpPattern == 1 && state.arpStepInPattern % 2 == 1) {
+      int swingExtra = (settings.arpSwing - 50) * divider / 100;
+      divider += swingExtra;
+    }
+
+    if (divider > 0 && arpClockCount >= divider) {
+      shouldTrigger = true;
+      arpClockCount = 0;  // Reset counter
     }
   } else {
-    // Use internal timing
-    int interval = arpTimings[state.arpRate];
+    // Internal timing
+    int baseInterval = arpTimings[state.arpRate];
+    int interval = getPatternInterval(baseInterval);
+
     if (currentTime - state.lastArpTime >= interval) {
       state.lastArpTime = currentTime;
       shouldTrigger = true;
@@ -764,14 +944,19 @@ void updateArpeggiator() {
   }
 
   if (shouldTrigger) {
-    // Stop previous note
-    stopArpNote(state.activePad, state.arpNoteIndex);
+    // Stop previous note if gate still open
+    if (arpGateOpen) {
+      stopArpNote(lastArpPad, lastArpNoteIndex);
+    }
 
     // Advance to next note
     advanceArpIndex(state.activePad);
+    state.arpStepInPattern++;
 
     // Play new note
     playArpNote(state.activePad, state.arpNoteIndex);
+    arpNoteOnTime = currentTime;
+    arpGateOpen = true;
   }
 }
 
@@ -797,6 +982,8 @@ void advanceArpIndex(int pad) {
       break;
     }
   }
+
+  int prevPos = currentPos;
 
   switch (state.arpMode) {
     case 0: // Up
@@ -825,6 +1012,13 @@ void advanceArpIndex(int pad) {
   }
 
   state.arpNoteIndex = activeIndices[currentPos];
+
+  // Advance octave step when wrapping around (completing a cycle)
+  bool wrapped = (state.arpMode == 0 && currentPos == 0 && prevPos != 0) ||
+                 (state.arpMode == 1 && currentPos == activeCount - 1 && prevPos != activeCount - 1);
+  if (wrapped && settings.arpOctaveRange > 0) {
+    state.arpOctaveStep++;
+  }
 }
 
 void playArpNote(int pad, int noteIndex) {
@@ -835,12 +1029,43 @@ void playArpNote(int pad, int noteIndex) {
   int note = settings.rootNote + chord.rootOffset + chord.intervals[noteIndex]
              + (chord.octaveModifiers[noteIndex] * 12) + (state.currentOctave * 12);
 
+  // Apply octave range modifier
+  int octaveShift = 0;
+  switch (settings.arpOctaveRange) {
+    case 1: // +1 octave cycling
+      octaveShift = (state.arpOctaveStep % 2) * 12;
+      break;
+    case 2: // +2 octaves cycling
+      octaveShift = (state.arpOctaveStep % 3) * 12;
+      break;
+    case 3: // -1 octave cycling
+      octaveShift = (state.arpOctaveStep % 2) * -12;
+      break;
+    case 4: // +/-1 octave cycling
+      {
+        int cycle = state.arpOctaveStep % 3;
+        octaveShift = (cycle == 0) ? 0 : (cycle == 1) ? 12 : -12;
+      }
+      break;
+  }
+  note += octaveShift;
   note = constrain(note, 0, 127);
 
-  int velocity = constrain(
-    settings.velocityScaling * (pads[pad].velocity + chord.velocityModifiers[noteIndex]),
-    1, 127
-  );
+  // Calculate velocity with variation
+  int baseVelocity = settings.velocityScaling * (pads[pad].velocity + chord.velocityModifiers[noteIndex]);
+
+  // Add velocity variation if enabled
+  if (settings.arpVelocityVar > 0) {
+    int variation = random(-settings.arpVelocityVar, settings.arpVelocityVar + 1);
+    baseVelocity += variation;
+  }
+
+  // Add accent on first beat of pattern
+  if (state.arpStepInPattern % 4 == 0) {
+    baseVelocity += 10;  // Slight accent
+  }
+
+  int velocity = constrain(baseVelocity, 1, 127);
 
   int channel = chord.channel[noteIndex];
   sendNoteOn(note, velocity, getOutputChannel(channel));
@@ -1056,8 +1281,8 @@ void updateVisuals() {
     pixels.setPixelColor(pixelIndex, color);
   }
 
-  // Unused buttons in column 4 (buttons 3, 7, 11)
-  // Button 3 = settings shortcut (Shift+3)
+  // Column 4 buttons (3, 7, 11) - special functions
+  // Button 3 = settings (Shift+3)
   if (state.inSettingsMode) {
     float pulse = (sin(millis() * 0.01) + 1) * 0.5;
     pixels.setPixelColor(4, dimColor(0xFFFF00, 0.3 + pulse * 0.7));  // Yellow pulse
@@ -1066,8 +1291,18 @@ void updateVisuals() {
   } else {
     pixels.setPixelColor(4, 0x000000);
   }
-  pixels.setPixelColor(8, 0x000000);   // Button 7
-  pixels.setPixelColor(12, 0x000000);  // Button 11
+
+  // Button 7 = arp settings (Shift+7)
+  if (state.inArpSettings) {
+    float pulse = (sin(millis() * 0.01) + 1) * 0.5;
+    pixels.setPixelColor(8, dimColor(0x00FFFF, 0.3 + pulse * 0.7));  // Cyan pulse
+  } else if (shiftState) {
+    pixels.setPixelColor(8, dimColor(0x00FFFF, 0.3));  // Dim cyan when shift held
+  } else {
+    pixels.setPixelColor(8, 0x000000);
+  }
+
+  pixels.setPixelColor(12, 0x000000);  // Button 11 - unused
 
   // Bottom row controls
   // Octave buttons (12, 13) -> pixels 13, 14
@@ -1109,6 +1344,8 @@ void updateDisplay() {
 
   if (state.inSettingsMode) {
     drawSettingsScreen();
+  } else if (state.inArpSettings) {
+    drawArpSettingsScreen();
   } else if (state.inEditMode) {
     drawEditScreen();
   } else {
@@ -1118,128 +1355,278 @@ void updateDisplay() {
   display.display();
 }
 
-void drawMainScreen() {
-  // Big chord display when playing
-  if (state.activePad >= 0) {
-    if (settings.playMode == 1) {
-      // PRESET mode - show chord name from bank
-      const char* chordName = presetBankInfo[settings.presetBank].chordNames[state.activePad];
+void drawArpSettingsScreen() {
+  // Compact header with page dots
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("ARP");
 
-      display.setTextSize(4);
-      int nameLen = strlen(chordName);
-      int xPos = (nameLen <= 2) ? 40 : (nameLen <= 4) ? 16 : 4;
-      if (nameLen > 4) display.setTextSize(3);
-
-      display.setCursor(xPos, 8);
-      display.print(chordName);
-
-      // Mode indicator
-      display.setTextSize(1);
-      display.setCursor(4, 4);
-      display.print(presetBankInfo[settings.presetBank].name);
-
+  // Page indicator dots (7 pages)
+  for (int i = 0; i <= 6; i++) {
+    int x = 30 + i * 10;
+    if (i == state.arpSettingsPage) {
+      display.fillRect(x, 2, 6, 6, WHITE);
     } else {
-      // SCALE mode - show root note + scale degree
-      int chordRoot = settings.rootNote + pads[state.activePad].chord.rootOffset + (state.currentOctave * 12);
-      chordRoot = constrain(chordRoot, 0, 127);
+      display.drawRect(x, 2, 6, 6, WHITE);
+    }
+  }
 
-      // Big root note name
-      display.setTextSize(4);
-      display.setCursor(16, 8);
-      display.print(midiNoteNames[chordRoot]);
+  // Current arp rate on right
+  display.setCursor(100, 0);
+  display.print(arpRateNames[state.arpRate]);
 
-      // Scale name
-      display.setTextSize(1);
-      display.setCursor(4, 4);
+  // Setting label (small)
+  display.setTextSize(1);
+  display.setCursor(0, 14);
+
+  const char* labels[7] = {"PATTERN", "GATE", "SWING", "HUMAN", "VEL", "OCT", "MODE"};
+  display.print(labels[state.arpSettingsPage]);
+
+  // Value (large, centered)
+  display.setTextSize(2);
+  char valueStr[16];
+
+  switch (state.arpSettingsPage) {
+    case 0: // Pattern
+      snprintf(valueStr, sizeof(valueStr), "%s", arpPatternNames[settings.arpPattern]);
+      break;
+    case 1: // Gate
+      snprintf(valueStr, sizeof(valueStr), "%d%%", settings.arpGate);
+      break;
+    case 2: // Swing
+      snprintf(valueStr, sizeof(valueStr), "%d%%", settings.arpSwing);
+      break;
+    case 3: // Humanize
+      snprintf(valueStr, sizeof(valueStr), "%dms", settings.arpHumanize);
+      break;
+    case 4: // Velocity Var
+      snprintf(valueStr, sizeof(valueStr), "+/-%d", settings.arpVelocityVar);
+      break;
+    case 5: // Octave
+      snprintf(valueStr, sizeof(valueStr), "%s", arpOctaveNames[settings.arpOctaveRange]);
+      break;
+    case 6: // Mode
+      snprintf(valueStr, sizeof(valueStr), "%s", arpModeNames[state.arpMode]);
+      break;
+  }
+
+  int len = strlen(valueStr);
+  int xPos = 64 - (len * 6);  // Center
+  display.setCursor(xPos, 28);
+  display.print(valueStr);
+
+  // Visual bar for percentage values
+  if (state.arpSettingsPage >= 1 && state.arpSettingsPage <= 4) {
+    int barVal = 0;
+    switch (state.arpSettingsPage) {
+      case 1: barVal = settings.arpGate; break;
+      case 2: barVal = settings.arpSwing; break;
+      case 3: barVal = settings.arpHumanize * 2; break;  // Scale 0-50 to 0-100
+      case 4: barVal = settings.arpVelocityVar * 2; break;
+    }
+    int barWidth = barVal * 120 / 100;
+    display.drawRect(4, 48, 120, 6, WHITE);
+    display.fillRect(4, 48, barWidth, 6, WHITE);
+  }
+
+  // Bottom hint
+  display.setTextSize(1);
+  display.setCursor(0, 56);
+  display.print("Rotate=Adj Click=Next");
+}
+
+// Draw 8-bit piano keyboard with active notes highlighted (1 octave)
+void drawPianoKeyboard(int baseNote, uint8_t* activeNotes, int numActive) {
+  // Piano spans 1 octave starting from baseNote rounded to C
+  int startNote = (baseNote / 12) * 12;  // Round down to nearest C
+
+  // Key dimensions for 1 octave centered on 128px screen
+  const int whiteKeyW = 16;  // White key width (7 keys * 16 = 112px)
+  const int whiteKeyH = 36;  // White key height
+  const int blackKeyW = 10;  // Black key width
+  const int blackKeyH = 22;  // Black key height
+  const int keyboardX = 8;   // Left margin to center
+  const int keyboardY = 16;  // Y position of keyboard
+
+  // Draw white keys first (C D E F G A B = 7 keys)
+  int whiteKeyIndex = 0;
+  for (int note = 0; note < 12; note++) {
+    int midiNote = startNote + note;
+
+    // Only white keys: C(0) D(2) E(4) F(5) G(7) A(9) B(11)
+    if (note == 0 || note == 2 || note == 4 || note == 5 || note == 7 || note == 9 || note == 11) {
+      int x = keyboardX + (whiteKeyIndex * whiteKeyW);
+
+      // Check if this note is active (check all octaves)
+      bool isActive = false;
+      for (int i = 0; i < numActive; i++) {
+        if ((activeNotes[i] % 12) == note) {
+          isActive = true;
+          break;
+        }
+      }
+
+      if (isActive) {
+        display.fillRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
+      } else {
+        display.drawRect(x, keyboardY, whiteKeyW - 1, whiteKeyH, WHITE);
+      }
+      whiteKeyIndex++;
+    }
+  }
+
+  // Draw black keys on top (C# D# F# G# A# = 5 keys)
+  // Positions after white keys: C#(after C), D#(after D), F#(after F), G#(after G), A#(after A)
+  const int blackKeyPositions[5] = {0, 1, 3, 4, 5};  // After which white key
+  const int blackNotes[5] = {1, 3, 6, 8, 10};        // Note numbers (C#, D#, F#, G#, A#)
+
+  for (int i = 0; i < 5; i++) {
+    int x = keyboardX + (blackKeyPositions[i] * whiteKeyW) + whiteKeyW - (blackKeyW / 2);
+
+    // Check if this black note is active
+    bool isActive = false;
+    for (int j = 0; j < numActive; j++) {
+      if ((activeNotes[j] % 12) == blackNotes[i]) {
+        isActive = true;
+        break;
+      }
+    }
+
+    if (isActive) {
+      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
+    } else {
+      display.fillRect(x, keyboardY, blackKeyW, blackKeyH, BLACK);
+      display.drawRect(x, keyboardY, blackKeyW, blackKeyH, WHITE);
+    }
+  }
+}
+
+void drawMainScreen() {
+  // Playing state - show piano keyboard with pressed notes
+  if (state.activePad >= 0) {
+    ChordV2& chord = pads[state.activePad].chord;
+
+    // Top-left: root key info (tiny)
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.print(midiNoteNames[settings.rootNote]);
+
+    // Top-center: chord/scale info
+    display.setCursor(40, 0);
+    if (settings.playMode == 1) {
+      display.print(presetBankInfo[settings.presetBank].chordNames[state.activePad]);
+    } else {
       display.print(scaleNames[settings.scaleType]);
     }
 
-    // Pad number
-    display.setTextSize(1);
-    display.setCursor(116, 4);
+    // Top-right: pad number
+    display.setCursor(116, 0);
     display.print(state.activePad + 1);
 
-    // Draw active notes as bars at bottom
-    ChordV2& chord = pads[state.activePad].chord;
-    int barX = 4;
+    // Build array of currently playing MIDI notes
+    uint8_t playingNotes[8];
+    int numPlaying = 0;
+    int chordRoot = settings.rootNote + chord.rootOffset + (state.currentOctave * 12);
+    chordRoot = constrain(chordRoot, 0, 127);
+
     for (int i = 0; i < 8; i++) {
       if (chord.isActive[i]) {
-        int barHeight = 10 + (chord.intervals[i] / 4);
-        barHeight = constrain(barHeight, 8, 20);
-        display.fillRect(barX, 64 - barHeight, 12, barHeight, WHITE);
-      } else {
-        display.drawRect(barX, 56, 12, 8, WHITE);
+        int note = chordRoot + chord.intervals[i];
+        if (note >= 0 && note <= 127) {
+          playingNotes[numPlaying++] = note;
+        }
       }
-      barX += 15;
     }
 
-    // Arp indicator
+    // Draw piano keyboard with active notes
+    drawPianoKeyboard(chordRoot, playingNotes, numPlaying);
+
+    // Bottom bar: arp indicator + octave
+    display.setTextSize(1);
     if (state.arpRate > 0) {
-      display.setTextSize(1);
-      display.setCursor(100, 56);
-      display.print("ARP");
+      display.setCursor(0, 56);
+      display.print("ARP ");
+      display.print(arpRateNames[state.arpRate]);
+    }
+
+    // Octave indicator on right
+    display.setCursor(100, 56);
+    if (state.currentOctave != 0) {
+      display.print("Oct");
+      if (state.currentOctave > 0) display.print("+");
+      display.print(state.currentOctave);
     }
 
   } else {
-    // IDLE state - different for each mode
+    // IDLE state - clean minimal design
+
+    // Top bar: mode indicator + clock pulse
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.print(settings.playMode == 1 ? "PRE" : "SCL");
+
+    // Clock indicator dot (blinks on beat)
+    if (settings.midiClockSync) {
+      if (clockPulseIndicator && (millis() - lastClockPulseTime < 100)) {
+        // Filled dot when receiving clock pulse
+        display.fillCircle(122, 4, 4, WHITE);
+      } else if (externalClockActive) {
+        // Hollow dot when clock active but not on beat
+        display.drawCircle(122, 4, 4, WHITE);
+      } else {
+        // Small dot waiting for clock
+        display.drawCircle(122, 4, 2, WHITE);
+      }
+    }
+
+    // Main content area - centered
     if (settings.playMode == 1) {
-      // PRESET mode idle - show bank name BIG
-      display.setTextSize(3);
+      // PRESET mode - bank name centered
+      display.setTextSize(2);
       const char* bankName = presetBankInfo[settings.presetBank].name;
       int nameLen = strlen(bankName);
-      int xPos = max(4, 64 - (nameLen * 9));
-      display.setCursor(xPos, 0);
+      int xPos = 64 - (nameLen * 6);  // Center the text
+      display.setCursor(xPos, 18);
       display.print(bankName);
 
-      // Mode label
-      display.setTextSize(1);
-      display.setCursor(4, 26);
-      display.print("PRESET MODE");
-
     } else {
-      // SCALE mode idle - show ROOT + SCALE BIG
-      display.setTextSize(3);
-      display.setCursor(4, 0);
-      display.print(midiNoteNames[settings.rootNote]);
-
+      // SCALE mode - root + scale on same line, centered
       display.setTextSize(2);
-      display.setCursor(64, 4);
-      display.print(scaleNames[settings.scaleType]);
 
-      // Mode label
-      display.setTextSize(1);
-      display.setCursor(4, 26);
-      display.print("SCALE MODE");
+      // Build display string: "C4 Maj" or "F#3 Min"
+      char displayStr[16];
+      snprintf(displayStr, sizeof(displayStr), "%s %s",
+               midiNoteNames[settings.rootNote],
+               scaleNames[settings.scaleType]);
+
+      int strLen = strlen(displayStr);
+      int xPos = max(0, 64 - (strLen * 6));
+      display.setCursor(xPos, 18);
+      display.print(displayStr);
     }
 
-    // Common info line
+    // Bottom bar: compact status
     display.setTextSize(1);
-    display.setCursor(4, 38);
-    display.print("CH:");
-    display.print(settings.midiOutputAChannel + 1);
 
-    display.setCursor(40, 38);
-    display.print("OCT:");
-    if (state.currentOctave >= 0) display.print("+");
-    display.print(state.currentOctave);
-
-    display.setCursor(80, 38);
-    display.print("ARP:");
-    display.print(arpRateNames[state.arpRate]);
-
-    // Clock status
-    display.setCursor(4, 48);
-    display.print("CLK:");
-    display.print(externalClockActive ? "SYNC" : (settings.midiClockSync ? "WAIT" : "OFF"));
-
-    // Hint
-    display.drawFastHLine(4, 56, 120, WHITE);
-    display.setCursor(8, 58);
-    if (settings.playMode == 0) {
-      display.print("<< ROOT NOTE >>");
+    // Left: octave with visual indicator
+    display.setCursor(0, 56);
+    if (state.currentOctave < 0) {
+      for (int i = 0; i > state.currentOctave; i--) display.print("<");
+    } else if (state.currentOctave > 0) {
+      for (int i = 0; i < state.currentOctave; i++) display.print(">");
     } else {
-      display.print("<< PRESET BANK >>");
+      display.print("-");
     }
+
+    // Center: arp rate (if active)
+    if (state.arpRate > 0) {
+      display.setCursor(52, 56);
+      display.print(arpRateNames[state.arpRate]);
+    }
+
+    // Right: channel
+    display.setCursor(108, 56);
+    display.print(settings.midiOutputAChannel + 1);
   }
 }
 
