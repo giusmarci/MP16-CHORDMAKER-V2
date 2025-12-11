@@ -151,10 +151,11 @@ struct RuntimeState {
   int editNoteIndex = 0;
   int activePad = -1;             // Currently playing pad (-1 = none)
   bool introComplete = false;
-  bool inSettingsMode = false;    // Settings mode (toggle with Shift+3)
-  bool inArpSettings = false;     // Arp settings mode (toggle with Shift+7)
+  bool inSettingsMode = false;    // Settings mode (toggle with button 3)
+  bool inArpSettings = false;     // Arp settings mode (toggle with button 11)
   int settingsPage = 0;           // Settings page index
   int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave
+  bool holdMode = false;          // HOLD mode - sustain notes after releasing pad
 };
 
 // Play mode names
@@ -397,8 +398,8 @@ void checkKeys() {
 }
 
 void processButtonPresses() {
-  // Check for Shift + Button 3 to toggle settings mode (toggle, not hold)
-  if (shiftState && keyStates[3] && !previousKeyStates[3]) {
+  // Button 3 = Settings toggle (click to open/close)
+  if (keyStates[3] && !previousKeyStates[3]) {
     if (state.inArpSettings) {
       // Close arp settings first if open
       state.inArpSettings = false;
@@ -411,8 +412,8 @@ void processButtonPresses() {
     return;
   }
 
-  // Check for Shift + Button 7 to toggle arp settings mode
-  if (shiftState && keyStates[7] && !previousKeyStates[7]) {
+  // Button 11 = Arp Settings toggle (click to open/close)
+  if (keyStates[11] && !previousKeyStates[11]) {
     if (state.inSettingsMode) {
       // Close main settings first if open
       state.inSettingsMode = false;
@@ -423,6 +424,19 @@ void processButtonPresses() {
       saveSettings();
     }
     return;
+  }
+
+  // Button 7 = HOLD toggle (sustain notes after releasing pad)
+  if (keyStates[7] && !previousKeyStates[7]) {
+    state.holdMode = !state.holdMode;
+    // If turning off hold, stop any sustained notes
+    if (!state.holdMode && state.activePad >= 0 && !padStates[state.activePad]) {
+      if (state.arpRate > 0) {
+        stopCurrentArpNote();
+      }
+      stopChord(state.activePad);
+      state.activePad = -1;
+    }
   }
 
   // Handle arp settings mode (Shift+7)
@@ -667,9 +681,13 @@ void processButtonPresses() {
         state.editingPad = i;
         state.editNoteIndex = 0;
       } else {
-        // Stop any currently playing arp note before switching pads
-        if (state.arpRate > 0 && state.activePad >= 0 && state.activePad != i) {
-          stopCurrentArpNote();
+        // Stop any currently playing notes before switching pads
+        if (state.activePad >= 0 && state.activePad != i) {
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
+          }
+          // Stop held chord if switching pads
+          stopChord(state.activePad);
         }
         // Play chord
         padStates[i] = true;
@@ -683,7 +701,8 @@ void processButtonPresses() {
       // Button released
       if (!shiftState && !state.inEditMode) {
         padStates[i] = false;
-        if (state.activePad == i) {
+        // If HOLD mode is on, keep playing (don't stop notes or clear activePad)
+        if (!state.holdMode && state.activePad == i) {
           // Stop any arp note that's currently playing before clearing activePad
           if (state.arpRate > 0) {
             stopCurrentArpNote();
@@ -1371,27 +1390,29 @@ void updateVisuals() {
   }
 
   // Column 4 buttons (3, 7, 11) - special functions
-  // Button 3 = settings (Shift+3)
+  // Button 3 = settings toggle
   if (state.inSettingsMode) {
     float pulse = (sin(millis() * 0.01) + 1) * 0.5;
     pixels.setPixelColor(4, dimColor(0xFFFF00, 0.3 + pulse * 0.7));  // Yellow pulse
-  } else if (shiftState) {
-    pixels.setPixelColor(4, dimColor(0xFFFF00, 0.3));  // Dim yellow when shift held
   } else {
-    pixels.setPixelColor(4, 0x000000);
+    pixels.setPixelColor(4, dimColor(0xFFFF00, 0.2));  // Dim yellow
   }
 
-  // Button 7 = arp settings (Shift+7)
+  // Button 7 = HOLD toggle
+  if (state.holdMode) {
+    float pulse = (sin(millis() * 0.008) + 1) * 0.5;
+    pixels.setPixelColor(8, dimColor(0xFF00FF, 0.4 + pulse * 0.6));  // Magenta pulse when active
+  } else {
+    pixels.setPixelColor(8, dimColor(0xFF00FF, 0.15));  // Dim magenta
+  }
+
+  // Button 11 = arp settings toggle
   if (state.inArpSettings) {
     float pulse = (sin(millis() * 0.01) + 1) * 0.5;
-    pixels.setPixelColor(8, dimColor(0x00FFFF, 0.3 + pulse * 0.7));  // Cyan pulse
-  } else if (shiftState) {
-    pixels.setPixelColor(8, dimColor(0x00FFFF, 0.3));  // Dim cyan when shift held
+    pixels.setPixelColor(12, dimColor(0x00FFFF, 0.3 + pulse * 0.7));  // Cyan pulse
   } else {
-    pixels.setPixelColor(8, 0x000000);
+    pixels.setPixelColor(12, dimColor(0x00FFFF, 0.2));  // Dim cyan
   }
-
-  pixels.setPixelColor(12, 0x000000);  // Button 11 - unused
 
   // Bottom row controls
   // Octave buttons (12, 13) -> pixels 13, 14
@@ -1630,10 +1651,13 @@ void drawMainScreen() {
     // Draw piano keyboard with active notes
     drawPianoKeyboard(chordRoot, playingNotes, numPlaying);
 
-    // Bottom bar: arp indicator + octave
+    // Bottom bar: hold + arp indicator + octave
     display.setTextSize(1);
+    display.setCursor(0, 56);
+    if (state.holdMode) {
+      display.print("HLD ");
+    }
     if (state.arpRate > 0) {
-      display.setCursor(0, 56);
       display.print("ARP ");
       display.print(arpRateNames[state.arpRate]);
     }
@@ -1707,9 +1731,15 @@ void drawMainScreen() {
       display.print("-");
     }
 
+    // Center-left: HOLD indicator
+    if (state.holdMode) {
+      display.setCursor(30, 56);
+      display.print("HLD");
+    }
+
     // Center: arp rate (if active)
     if (state.arpRate > 0) {
-      display.setCursor(52, 56);
+      display.setCursor(60, 56);
       display.print(arpRateNames[state.arpRate]);
     }
 
