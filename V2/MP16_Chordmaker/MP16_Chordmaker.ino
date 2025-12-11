@@ -1951,10 +1951,11 @@ void loadCurrentMode() {
 }
 
 void loadScaleMode() {
-  // Generate 9 diatonic chords from the selected scale
-  // Pads 1-7: Scale degrees I through VII
-  // Pad 8: V7 (dominant 7th)
-  // Pad 9: Imaj7 or Im7
+  // Generate 9 chords from the selected scale
+  // For 7-note scales: diatonic triads I-VII, V7, Imaj7/Im7
+  // For 5-note scales: pentatonic chords with stacked notes
+  // For 6-note scales: triads from scale tones
+  // For chromatic: chromatic clusters
 
   settings.scaleType = constrain(settings.scaleType, 0, NUM_SCALES - 1);
   int noteCount = scaleNoteCounts[settings.scaleType];
@@ -1979,82 +1980,156 @@ void loadScaleMode() {
 
     int scaleDegree = i % noteCount;  // Wrap for scales with fewer notes
 
-    if (i < 7 && noteCount >= 7) {
-      // Diatonic triads for degrees I-VII
+    if (noteCount >= 7) {
+      // 7+ note scales: diatonic triads
+      if (i < 7) {
+        // Diatonic triads for degrees I-VII
+        int root = scaleIntervals[settings.scaleType][scaleDegree];
+        int third = scaleIntervals[settings.scaleType][(scaleDegree + 2) % noteCount];
+        int fifth = scaleIntervals[settings.scaleType][(scaleDegree + 4) % noteCount];
+
+        // Handle octave wrapping
+        if (third < root) third += 12;
+        if (fifth < root) fifth += 12;
+
+        chord.rootOffset = root;
+        chord.intervals[0] = 0;                    // Root
+        chord.intervals[1] = third - root;         // 3rd
+        chord.intervals[2] = fifth - root;         // 5th
+        chord.intervals[3] = 12;                   // Octave
+
+        chord.velocityModifiers[0] = 0;
+        chord.velocityModifiers[1] = -5;
+        chord.velocityModifiers[2] = -5;
+        chord.velocityModifiers[3] = -10;
+
+        chord.isActive[0] = true;
+        chord.isActive[1] = true;
+        chord.isActive[2] = true;
+        chord.isActive[3] = true;
+
+      } else if (i == 7) {
+        // Pad 8: V7 (dominant seventh)
+        int fifth = scaleIntervals[settings.scaleType][4];
+        chord.rootOffset = fifth;
+        chord.intervals[0] = 0;   // Root
+        chord.intervals[1] = 4;   // Major 3rd
+        chord.intervals[2] = 7;   // 5th
+        chord.intervals[3] = 10;  // b7
+
+        chord.velocityModifiers[0] = 0;
+        chord.velocityModifiers[1] = -5;
+        chord.velocityModifiers[2] = -5;
+        chord.velocityModifiers[3] = -5;
+
+        chord.isActive[0] = true;
+        chord.isActive[1] = true;
+        chord.isActive[2] = true;
+        chord.isActive[3] = true;
+
+      } else if (i == 8) {
+        // Pad 9: Imaj7 or Im7 depending on scale
+        chord.rootOffset = 0;
+        int thirdInterval = scaleIntervals[settings.scaleType][2];
+        bool isMajorThird = (thirdInterval == 4);
+
+        chord.intervals[0] = 0;                           // Root
+        chord.intervals[1] = thirdInterval;               // 3rd from scale
+        chord.intervals[2] = 7;                           // 5th
+        chord.intervals[3] = isMajorThird ? 11 : 10;      // maj7 or m7
+
+        chord.velocityModifiers[0] = 0;
+        chord.velocityModifiers[1] = -5;
+        chord.velocityModifiers[2] = -5;
+        chord.velocityModifiers[3] = -5;
+
+        chord.isActive[0] = true;
+        chord.isActive[1] = true;
+        chord.isActive[2] = true;
+        chord.isActive[3] = true;
+      }
+
+    } else if (noteCount == 5) {
+      // Pentatonic scales (5 notes): stack scale tones
+      // Each pad gets root + next scale tone + tone after that
       int root = scaleIntervals[settings.scaleType][scaleDegree];
+      int second = scaleIntervals[settings.scaleType][(scaleDegree + 1) % noteCount];
       int third = scaleIntervals[settings.scaleType][(scaleDegree + 2) % noteCount];
-      int fifth = scaleIntervals[settings.scaleType][(scaleDegree + 4) % noteCount];
+      int fourth = scaleIntervals[settings.scaleType][(scaleDegree + 3) % noteCount];
 
       // Handle octave wrapping
+      if (second < root) second += 12;
       if (third < root) third += 12;
-      if (fifth < root) fifth += 12;
+      if (fourth < root) fourth += 12;
 
       chord.rootOffset = root;
-      chord.intervals[0] = 0;                    // Root
-      chord.intervals[1] = third - root;         // 3rd
-      chord.intervals[2] = fifth - root;         // 5th
-      chord.intervals[3] = 12;                   // Octave
-      chord.intervals[4] = (third - root) + 12;  // 3rd up octave
+      chord.intervals[0] = 0;              // Root
+      chord.intervals[1] = second - root;  // 2nd scale tone
+      chord.intervals[2] = third - root;   // 3rd scale tone
+      chord.intervals[3] = 12;             // Octave
 
       chord.velocityModifiers[0] = 0;
       chord.velocityModifiers[1] = -5;
       chord.velocityModifiers[2] = -5;
       chord.velocityModifiers[3] = -10;
-      chord.velocityModifiers[4] = -15;
 
       chord.isActive[0] = true;
       chord.isActive[1] = true;
       chord.isActive[2] = true;
       chord.isActive[3] = true;
-      chord.isActive[4] = false;
 
-    } else if (i == 7) {
-      // Pad 8: V7 (dominant seventh)
-      int fifth = (noteCount >= 5) ? scaleIntervals[settings.scaleType][4] : 7;
-      chord.rootOffset = fifth;
+      // Pads 6-9: special chords for pentatonic
+      if (i >= 5) {
+        // Add the 4th scale tone for variety
+        chord.intervals[3] = fourth - root;
+        chord.isActive[3] = true;
+      }
+
+    } else if (noteCount == 6) {
+      // 6-note scales (Blues, Whole Tone): triads from scale
+      int root = scaleIntervals[settings.scaleType][scaleDegree];
+      int second = scaleIntervals[settings.scaleType][(scaleDegree + 2) % noteCount];
+      int third = scaleIntervals[settings.scaleType][(scaleDegree + 4) % noteCount];
+
+      // Handle octave wrapping
+      if (second < root) second += 12;
+      if (third < root) third += 12;
+
+      chord.rootOffset = root;
+      chord.intervals[0] = 0;              // Root
+      chord.intervals[1] = second - root;  // Scale tone +2
+      chord.intervals[2] = third - root;   // Scale tone +4
+      chord.intervals[3] = 12;             // Octave
+
+      chord.velocityModifiers[0] = 0;
+      chord.velocityModifiers[1] = -5;
+      chord.velocityModifiers[2] = -5;
+      chord.velocityModifiers[3] = -10;
+
+      chord.isActive[0] = true;
+      chord.isActive[1] = true;
+      chord.isActive[2] = true;
+      chord.isActive[3] = true;
+
+    } else if (noteCount == 12) {
+      // Chromatic: semitone clusters or spread voicings
+      int root = i;  // Each pad is a semitone
+
+      chord.rootOffset = root;
       chord.intervals[0] = 0;   // Root
       chord.intervals[1] = 4;   // Major 3rd
       chord.intervals[2] = 7;   // 5th
-      chord.intervals[3] = 10;  // b7
-      chord.intervals[4] = 12;  // Octave
+      chord.intervals[3] = 12;  // Octave
 
       chord.velocityModifiers[0] = 0;
       chord.velocityModifiers[1] = -5;
       chord.velocityModifiers[2] = -5;
-      chord.velocityModifiers[3] = -5;
-      chord.velocityModifiers[4] = -10;
+      chord.velocityModifiers[3] = -10;
 
       chord.isActive[0] = true;
       chord.isActive[1] = true;
       chord.isActive[2] = true;
       chord.isActive[3] = true;
-      chord.isActive[4] = false;
-
-    } else if (i == 8) {
-      // Pad 9: Imaj7 or Im7 depending on scale
-      chord.rootOffset = 0;
-      chord.intervals[0] = 0;   // Root
-
-      // Check if scale has major or minor 3rd
-      int thirdInterval = (noteCount >= 3) ? scaleIntervals[settings.scaleType][2] : 4;
-      bool isMajorThird = (thirdInterval == 4);
-
-      chord.intervals[1] = thirdInterval;  // 3rd from scale
-      chord.intervals[2] = 7;              // 5th
-      chord.intervals[3] = isMajorThird ? 11 : 10;  // maj7 or m7
-      chord.intervals[4] = 12;             // Octave
-
-      chord.velocityModifiers[0] = 0;
-      chord.velocityModifiers[1] = -5;
-      chord.velocityModifiers[2] = -5;
-      chord.velocityModifiers[3] = -5;
-      chord.velocityModifiers[4] = -10;
-
-      chord.isActive[0] = true;
-      chord.isActive[1] = true;
-      chord.isActive[2] = true;
-      chord.isActive[3] = true;
-      chord.isActive[4] = true;
     }
   }
 }
