@@ -131,7 +131,10 @@ const char* arpPatternNames[NUM_ARP_PATTERNS] = {
 };
 
 // Arp octave range names
-const char* arpOctaveNames[5] = {"Off", "+1", "+2", "-1", "+/-1"};
+#define NUM_ARP_OCTAVES 9
+const char* arpOctaveNames[NUM_ARP_OCTAVES] = {
+  "Off", "+1", "+2", "+3", "+4", "+5", "-1", "-2", "+/-1"
+};
 
 // V2 Runtime state
 struct RuntimeState {
@@ -459,9 +462,9 @@ void processButtonPresses() {
           break;
         case 5: // Octave Range
           if (encoderValue > 0) {
-            settings.arpOctaveRange = (settings.arpOctaveRange + 1) % 5;
+            settings.arpOctaveRange = (settings.arpOctaveRange + 1) % NUM_ARP_OCTAVES;
           } else {
-            settings.arpOctaveRange = (settings.arpOctaveRange + 4) % 5;
+            settings.arpOctaveRange = (settings.arpOctaveRange + NUM_ARP_OCTAVES - 1) % NUM_ARP_OCTAVES;
           }
           break;
         case 6: // Arp Mode (Up/Down/UpDown/Random)
@@ -987,10 +990,12 @@ void advanceArpIndex(int pad) {
     case 0: // Up
       currentPos = (currentPos + 1) % activeCount;
       break;
+
     case 1: // Down
       currentPos = (currentPos - 1 + activeCount) % activeCount;
       break;
-    case 2: // Up-Down
+
+    case 2: // Up-Down (ping-pong)
       if (state.arpDirection) {
         currentPos++;
         if (currentPos >= activeCount - 1) {
@@ -1004,16 +1009,44 @@ void advanceArpIndex(int pad) {
       }
       currentPos = constrain(currentPos, 0, activeCount - 1);
       break;
-    case 3: // Random
+
+    case 3: // Down-Up (reverse ping-pong)
+      if (!state.arpDirection) {
+        currentPos--;
+        if (currentPos <= 0) {
+          state.arpDirection = true;
+        }
+      } else {
+        currentPos++;
+        if (currentPos >= activeCount - 1) {
+          state.arpDirection = false;
+        }
+      }
+      currentPos = constrain(currentPos, 0, activeCount - 1);
+      break;
+
+    case 4: // Random
       currentPos = random(activeCount);
+      break;
+
+    case 5: // Order (play in slot order 0-7)
+      currentPos = (currentPos + 1) % activeCount;
+      break;
+
+    case 6: // Chord (play all notes - handled specially, just cycle)
+      currentPos = (currentPos + 1) % activeCount;
+      break;
+
+    case 7: // 2Oct (up through 2 octaves then reset)
+      currentPos = (currentPos + 1) % activeCount;
+      // Octave stepping handled by arpOctaveStep
       break;
   }
 
   state.arpNoteIndex = activeIndices[currentPos];
 
   // Advance octave step when wrapping around (completing a cycle)
-  bool wrapped = (state.arpMode == 0 && currentPos == 0 && prevPos != 0) ||
-                 (state.arpMode == 1 && currentPos == activeCount - 1 && prevPos != activeCount - 1);
+  bool wrapped = (currentPos == 0 && prevPos != 0);
   if (wrapped && settings.arpOctaveRange > 0) {
     state.arpOctaveStep++;
   }
@@ -1028,6 +1061,7 @@ void playArpNote(int pad, int noteIndex) {
              + (chord.octaveModifiers[noteIndex] * 12) + (state.currentOctave * 12);
 
   // Apply octave range modifier
+  // 0=Off, 1=+1, 2=+2, 3=+3, 4=+4, 5=+5, 6=-1, 7=-2, 8=+/-1
   int octaveShift = 0;
   switch (settings.arpOctaveRange) {
     case 1: // +1 octave cycling
@@ -1036,10 +1070,22 @@ void playArpNote(int pad, int noteIndex) {
     case 2: // +2 octaves cycling
       octaveShift = (state.arpOctaveStep % 3) * 12;
       break;
-    case 3: // -1 octave cycling
+    case 3: // +3 octaves cycling
+      octaveShift = (state.arpOctaveStep % 4) * 12;
+      break;
+    case 4: // +4 octaves cycling
+      octaveShift = (state.arpOctaveStep % 5) * 12;
+      break;
+    case 5: // +5 octaves cycling
+      octaveShift = (state.arpOctaveStep % 6) * 12;
+      break;
+    case 6: // -1 octave cycling
       octaveShift = (state.arpOctaveStep % 2) * -12;
       break;
-    case 4: // +/-1 octave cycling
+    case 7: // -2 octaves cycling
+      octaveShift = (state.arpOctaveStep % 3) * -12;
+      break;
+    case 8: // +/-1 octave cycling
       {
         int cycle = state.arpOctaveStep % 3;
         octaveShift = (cycle == 0) ? 0 : (cycle == 1) ? 12 : -12;

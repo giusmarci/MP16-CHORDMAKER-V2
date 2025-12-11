@@ -116,10 +116,17 @@ const char* arpRateNames[7] = {
 };
 
 // Arpeggiator mode names
-#define NUM_ARP_MODES 4
+#define NUM_ARP_MODES 8
 
 const char* arpModeNames[NUM_ARP_MODES] = {
-  "Up", "Down", "UpDown", "Random"
+  "Up",       // 0: Low to high
+  "Down",     // 1: High to low
+  "UpDown",   // 2: Up then down (ping-pong)
+  "DownUp",   // 3: Down then up
+  "Random",   // 4: Random note each step
+  "Order",    // 5: Play in order notes were added
+  "Chord",    // 6: All notes together (like strumming)
+  "2Oct"      // 7: Up through 2 octaves
 };
 
 // Common chord progressions (as scale degrees, 0-indexed)
