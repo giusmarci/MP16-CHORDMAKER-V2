@@ -173,6 +173,8 @@ unsigned long lastClockPulseTime = 0;       // For clock indicator timing
 // Arpeggiator note tracking (to prevent stuck notes)
 int lastArpPad = -1;                        // Which pad the last arp note was from
 int lastArpNoteIndex = -1;                  // Which note index was last played
+int lastArpNoteMidi = -1;                   // Actual MIDI note number that was played (with octave shift)
+int lastArpNoteChannel = 0;                 // Channel used for last note
 bool arpNotePlaying = false;                // Is an arp note currently sounding
 
 SettingsV2 settings;
@@ -632,9 +634,10 @@ void processButtonPresses() {
         // Play chord
         padStates[i] = true;
         state.activePad = i;
-        // Reset arp index when switching pads
+        // Reset arp state when switching pads
         state.arpNoteIndex = 0;
         state.arpDirection = true;
+        state.arpOctaveStep = 0;  // Reset octave cycling
       }
     } else if (!keyStates[btnIndex] && previousKeyStates[btnIndex]) {
       // Button released
@@ -668,6 +671,7 @@ void processButtonPresses() {
     state.arpRate = constrain(state.arpRate - 1, 0, 6);
     if (state.arpRate == 0) {
       state.arpNoteIndex = 0;
+      state.arpOctaveStep = 0;  // Reset octave cycling
     }
   }
   if (keyStates[BTN_ARP_UP] && !previousKeyStates[BTN_ARP_UP]) {
@@ -821,9 +825,10 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
           }
           padStates[i] = true;
           state.activePad = i;
-          // Reset arp index when switching pads
+          // Reset arp state when switching pads
           state.arpNoteIndex = 0;
           state.arpDirection = true;
+          state.arpOctaveStep = 0;  // Reset octave cycling
         }
       }
     } else if (command == 0x80 || (command == 0x90 && data2 == 0)) {
@@ -1119,34 +1124,29 @@ void playArpNote(int pad, int noteIndex) {
   int channel = chord.channel[noteIndex];
   sendNoteOn(note, velocity, getOutputChannel(channel));
 
-  // Track what's playing so we can stop it later
+  // Track what's playing so we can stop it later (store actual MIDI note!)
   lastArpPad = pad;
   lastArpNoteIndex = noteIndex;
+  lastArpNoteMidi = note;  // Store the actual note with octave shift applied
+  lastArpNoteChannel = getOutputChannel(channel);
   arpNotePlaying = true;
 }
 
 void stopArpNote(int pad, int noteIndex) {
-  if (pad < 0 || pad >= 9) return;
-  if (noteIndex < 0 || noteIndex >= 8) return;
-  if (!pads[pad].chord.isActive[noteIndex]) return;
-
-  ChordV2& chord = pads[pad].chord;
-  int note = settings.rootNote + chord.rootOffset + chord.intervals[noteIndex]
-             + (chord.octaveModifiers[noteIndex] * 12) + (state.currentOctave * 12);
-
-  note = constrain(note, 0, 127);
-
-  int channel = chord.channel[noteIndex];
-  sendNoteOff(note, 0, getOutputChannel(channel));
+  // Use the stored MIDI note - this includes octave shift that was applied during playback
+  if (lastArpNoteMidi >= 0) {
+    sendNoteOff(lastArpNoteMidi, 0, lastArpNoteChannel);
+  }
 }
 
 // Stop whatever arp note is currently playing
 void stopCurrentArpNote() {
-  if (arpNotePlaying && lastArpPad >= 0 && lastArpNoteIndex >= 0) {
-    stopArpNote(lastArpPad, lastArpNoteIndex);
+  if (arpNotePlaying && lastArpNoteMidi >= 0) {
+    sendNoteOff(lastArpNoteMidi, 0, lastArpNoteChannel);
     arpNotePlaying = false;
     lastArpPad = -1;
     lastArpNoteIndex = -1;
+    lastArpNoteMidi = -1;
   }
 }
 
