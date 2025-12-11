@@ -437,13 +437,16 @@ void processButtonPresses() {
     } else {
       // Just 7 = toggle HOLD mode
       state.holdMode = !state.holdMode;
-      // If turning off hold, stop any sustained notes
-      if (!state.holdMode && state.activePad >= 0 && !padStates[state.activePad]) {
+      // If turning off hold, stop any sustained notes immediately
+      if (!state.holdMode && state.activePad >= 0) {
         if (state.arpRate > 0) {
           stopCurrentArpNote();
         }
         stopChord(state.activePad);
-        state.activePad = -1;
+        // Only clear activePad if pad is not physically pressed
+        if (!padStates[state.activePad]) {
+          state.activePad = -1;
+        }
       }
     }
   }
@@ -451,10 +454,20 @@ void processButtonPresses() {
   // Handle Max Notes menu (Shift+7)
   if (state.inMaxNotesMenu) {
     if (encoderValue != 0) {
+      int oldMax = settings.maxNotesPerChord;
       if (encoderValue > 0) {
         settings.maxNotesPerChord = constrain(settings.maxNotesPerChord + 1, 1, 8);
       } else {
         settings.maxNotesPerChord = constrain(settings.maxNotesPerChord - 1, 1, 8);
+      }
+      // If playing and changed, restart chord with new note count
+      if (state.activePad >= 0 && settings.maxNotesPerChord != oldMax) {
+        if (state.arpRate > 0) {
+          stopCurrentArpNote();
+        } else {
+          stopChord(state.activePad);
+          playChord(state.activePad);
+        }
       }
       encoderValue = 0;
       saveSettings();
@@ -1059,12 +1072,14 @@ void updateArpeggiator() {
 void advanceArpIndex(int pad) {
   ChordV2& chord = pads[pad].chord;
 
-  // Count active notes
+  // Count active notes (limited by maxNotesPerChord)
   int activeCount = 0;
   int activeIndices[8];
   for (int i = 0; i < 8; i++) {
     if (chord.isActive[i]) {
-      activeIndices[activeCount++] = i;
+      if (activeCount < settings.maxNotesPerChord) {
+        activeIndices[activeCount++] = i;
+      }
     }
   }
 
@@ -1240,9 +1255,13 @@ void stopCurrentArpNote() {
 void playChord(int pad) {
   ChordV2& chord = pads[pad].chord;
 
+  int notesPlayed = 0;
   for (int j = 0; j < 8; j++) {
     if (chord.isActive[j]) {
-      playNote(pad, j);
+      if (notesPlayed < settings.maxNotesPerChord) {
+        playNote(pad, j);
+        notesPlayed++;
+      }
     }
   }
 }
