@@ -102,7 +102,7 @@ int noteCountD[128] = {0};
 // V2 Settings
 struct SettingsV2 {
   int rootNote = 48;              // C3
-  int scaleType = 0;              // Major
+  int scaleType = 0;              // Scale type for SCALE mode (0=Major, 1=Minor, etc.)
   int midiTrigChannel = 1;
   int midiOutputAChannel = 15;    // Default channel 16 (0-indexed = 15)
   int midiOutputBChannel = 15;
@@ -112,9 +112,9 @@ struct SettingsV2 {
   float velocityScaling = 1.0;
   int defaultVelocity = 100;
   int ledBrightness = 100;
-  int deviceMode = 1;             // 0 = Legacy, 1 = V2
+  int playMode = 0;               // 0 = SCALE mode (user sets root/scale), 1 = PRESET mode (jazz, pop, etc.)
   bool midiClockSync = true;      // Sync arp to external MIDI clock (default ON)
-  int presetBank = 0;             // Current preset bank (0-5)
+  int presetBank = 0;             // Current preset bank for PRESET mode (0-5)
 };
 
 // V2 Runtime state
@@ -131,8 +131,11 @@ struct RuntimeState {
   int activePad = -1;             // Currently playing pad (-1 = none)
   bool introComplete = false;
   bool inSettingsMode = false;    // Settings mode
-  int settingsPage = 0;           // 0=Channel, 1=Clock, 2=Bank
+  int settingsPage = 0;           // 0=Mode, 1=Root/Bank, 2=Scale(if scale mode), 3=Channel, 4=Clock
 };
+
+// Play mode names
+const char* playModeNames[2] = {"SCALE", "PRESET"};
 
 // MIDI Clock state
 volatile bool midiClockReceived = false;    // Flag set by interrupt when clock pulse received
@@ -377,15 +380,19 @@ void processButtonPresses() {
     return;
   }
 
-  // Handle settings mode (3 pages: Channel, Clock, Bank)
+  // Handle settings mode
+  // SCALE mode pages: 0=Mode, 1=Root, 2=Scale, 3=Channel, 4=Clock
+  // PRESET mode pages: 0=Mode, 1=Bank, 2=Channel, 3=Clock
   if (state.inSettingsMode) {
+    int maxPages = (settings.playMode == 0) ? 4 : 3;  // SCALE has more pages
+
     // Encoder click cycles through settings pages or exits
     if (encoderState && !previousEncoderState) {
       state.settingsPage++;
-      if (state.settingsPage > 2) {
+      if (state.settingsPage > maxPages) {
         // Exit settings after last page
         saveSettings();
-        loadPresetBank();  // Apply any bank changes
+        loadCurrentMode();
         state.inSettingsMode = false;
         state.settingsPage = 0;
       }
@@ -393,24 +400,63 @@ void processButtonPresses() {
 
     // Encoder rotation changes current setting
     if (encoderValue != 0) {
-      switch (state.settingsPage) {
-        case 0:  // MIDI Channel
-          if (encoderValue > 0) {
-            settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
-          } else {
-            settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
-          }
-          break;
-        case 1:  // Clock Sync
-          settings.midiClockSync = !settings.midiClockSync;
-          break;
-        case 2:  // Preset Bank
-          if (encoderValue > 0) {
-            settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
-          } else {
-            settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
-          }
-          break;
+      if (settings.playMode == 0) {
+        // SCALE mode settings
+        switch (state.settingsPage) {
+          case 0:  // Play Mode
+            settings.playMode = 1 - settings.playMode;  // Toggle 0/1
+            state.settingsPage = 0;  // Reset to show new mode's settings
+            break;
+          case 1:  // Root Note
+            if (encoderValue > 0) {
+              settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
+            } else {
+              settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
+            }
+            break;
+          case 2:  // Scale Type
+            if (encoderValue > 0) {
+              settings.scaleType = (settings.scaleType + 1) % NUM_SCALES;
+            } else {
+              settings.scaleType = (settings.scaleType + NUM_SCALES - 1) % NUM_SCALES;
+            }
+            break;
+          case 3:  // MIDI Channel
+            if (encoderValue > 0) {
+              settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
+            } else {
+              settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
+            }
+            break;
+          case 4:  // Clock Sync
+            settings.midiClockSync = !settings.midiClockSync;
+            break;
+        }
+      } else {
+        // PRESET mode settings
+        switch (state.settingsPage) {
+          case 0:  // Play Mode
+            settings.playMode = 1 - settings.playMode;
+            state.settingsPage = 0;
+            break;
+          case 1:  // Preset Bank
+            if (encoderValue > 0) {
+              settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
+            } else {
+              settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
+            }
+            break;
+          case 2:  // MIDI Channel
+            if (encoderValue > 0) {
+              settings.midiOutputAChannel = (settings.midiOutputAChannel + 1) % 16;
+            } else {
+              settings.midiOutputAChannel = (settings.midiOutputAChannel + 15) % 16;
+            }
+            break;
+          case 3:  // Clock Sync
+            settings.midiClockSync = !settings.midiClockSync;
+            break;
+        }
       }
       encoderValue = 0;
     }
@@ -418,22 +464,32 @@ void processButtonPresses() {
     // Exit settings when shift released
     if (!shiftState && previousShiftState) {
       saveSettings();
-      loadPresetBank();
+      loadCurrentMode();
       state.inSettingsMode = false;
     }
     return;
   }
 
-  // Encoder changes preset bank when idle (not playing, not editing)
+  // Encoder changes when idle (not playing, not editing)
   if (state.activePad < 0 && !state.inEditMode) {
     if (encoderValue != 0) {
-      if (encoderValue > 0) {
-        settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
+      if (settings.playMode == 0) {
+        // SCALE mode: encoder changes root note
+        if (encoderValue > 0) {
+          settings.rootNote = constrain(settings.rootNote + 1, 24, 72);
+        } else {
+          settings.rootNote = constrain(settings.rootNote - 1, 24, 72);
+        }
       } else {
-        settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
+        // PRESET mode: encoder changes preset bank
+        if (encoderValue > 0) {
+          settings.presetBank = (settings.presetBank + 1) % NUM_PRESET_BANKS;
+        } else {
+          settings.presetBank = (settings.presetBank + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
+        }
       }
       encoderValue = 0;
-      loadPresetBank();
+      loadCurrentMode();
       saveSettings();
     }
   }
@@ -1010,35 +1066,43 @@ void updateDisplay() {
 void drawMainScreen() {
   // Big chord display when playing
   if (state.activePad >= 0) {
-    // Get chord name from preset bank info
-    const char* chordName = presetBankInfo[settings.presetBank].chordNames[state.activePad];
+    if (settings.playMode == 1) {
+      // PRESET mode - show chord name from bank
+      const char* chordName = presetBankInfo[settings.presetBank].chordNames[state.activePad];
 
-    // GIANT chord name - full screen
-    display.setTextSize(4);
+      display.setTextSize(4);
+      int nameLen = strlen(chordName);
+      int xPos = (nameLen <= 2) ? 40 : (nameLen <= 4) ? 16 : 4;
+      if (nameLen > 4) display.setTextSize(3);
 
-    // Center the text based on length
-    int nameLen = strlen(chordName);
-    int xPos;
-    if (nameLen <= 2) {
-      xPos = 40;
-    } else if (nameLen <= 4) {
-      xPos = 16;
+      display.setCursor(xPos, 8);
+      display.print(chordName);
+
+      // Mode indicator
+      display.setTextSize(1);
+      display.setCursor(4, 4);
+      display.print(presetBankInfo[settings.presetBank].name);
+
     } else {
-      xPos = 4;
-      display.setTextSize(3);  // Smaller for long names
+      // SCALE mode - show root note + scale degree
+      int chordRoot = settings.rootNote + pads[state.activePad].chord.rootOffset + (state.currentOctave * 12);
+      chordRoot = constrain(chordRoot, 0, 127);
+
+      // Big root note name
+      display.setTextSize(4);
+      display.setCursor(16, 8);
+      display.print(midiNoteNames[chordRoot]);
+
+      // Scale name
+      display.setTextSize(1);
+      display.setCursor(4, 4);
+      display.print(scaleNames[settings.scaleType]);
     }
 
-    display.setCursor(xPos, 8);
-    display.print(chordName);
-
-    // Pad number small in corner
+    // Pad number
     display.setTextSize(1);
     display.setCursor(116, 4);
     display.print(state.activePad + 1);
-
-    // Bank name small
-    display.setCursor(4, 4);
-    display.print(presetBankInfo[settings.presetBank].name);
 
     // Draw active notes as bars at bottom
     ChordV2& chord = pads[state.activePad].chord;
@@ -1054,53 +1118,73 @@ void drawMainScreen() {
       barX += 15;
     }
 
-    // Show arp indicator if active
+    // Arp indicator
     if (state.arpRate > 0) {
       display.setTextSize(1);
       display.setCursor(100, 56);
       display.print("ARP");
     }
+
   } else {
-    // Idle state - show preset bank BIG
-    display.setTextSize(3);
+    // IDLE state - different for each mode
+    if (settings.playMode == 1) {
+      // PRESET mode idle - show bank name BIG
+      display.setTextSize(3);
+      const char* bankName = presetBankInfo[settings.presetBank].name;
+      int nameLen = strlen(bankName);
+      int xPos = max(4, 64 - (nameLen * 9));
+      display.setCursor(xPos, 0);
+      display.print(bankName);
 
-    // Center bank name
-    const char* bankName = presetBankInfo[settings.presetBank].name;
-    int nameLen = strlen(bankName);
-    int xPos = 64 - (nameLen * 9);  // Approximate centering
-    xPos = max(4, xPos);
+      // Mode label
+      display.setTextSize(1);
+      display.setCursor(4, 26);
+      display.print("PRESET MODE");
 
-    display.setCursor(xPos, 4);
-    display.print(bankName);
+    } else {
+      // SCALE mode idle - show ROOT + SCALE BIG
+      display.setTextSize(3);
+      display.setCursor(4, 0);
+      display.print(midiNoteNames[settings.rootNote]);
 
-    // Show current settings
+      display.setTextSize(2);
+      display.setCursor(64, 4);
+      display.print(scaleNames[settings.scaleType]);
+
+      // Mode label
+      display.setTextSize(1);
+      display.setCursor(4, 26);
+      display.print("SCALE MODE");
+    }
+
+    // Common info line
     display.setTextSize(1);
-    display.setCursor(4, 32);
+    display.setCursor(4, 38);
     display.print("CH:");
     display.print(settings.midiOutputAChannel + 1);
 
-    display.setCursor(40, 32);
+    display.setCursor(40, 38);
     display.print("OCT:");
     if (state.currentOctave >= 0) display.print("+");
     display.print(state.currentOctave);
 
-    display.setCursor(80, 32);
+    display.setCursor(80, 38);
     display.print("ARP:");
     display.print(arpRateNames[state.arpRate]);
 
-    // Clock sync indicator
-    if (settings.midiClockSync) {
-      display.setCursor(4, 42);
-      display.print("CLK:");
-      display.print(externalClockActive ? "SYNC" : "INT");
+    // Clock status
+    display.setCursor(4, 48);
+    display.print("CLK:");
+    display.print(externalClockActive ? "SYNC" : (settings.midiClockSync ? "WAIT" : "OFF"));
+
+    // Hint
+    display.drawFastHLine(4, 56, 120, WHITE);
+    display.setCursor(8, 58);
+    if (settings.playMode == 0) {
+      display.print("<< ROOT NOTE >>");
+    } else {
+      display.print("<< PRESET BANK >>");
     }
-
-    // Decorative line
-    display.drawFastHLine(4, 52, 120, WHITE);
-
-    // Bottom: hint to rotate encoder
-    display.setCursor(12, 56);
-    display.print("<< TURN TO CHANGE >>");
   }
 }
 
@@ -1164,9 +1248,11 @@ void drawEditScreen() {
 }
 
 void drawSettingsScreen() {
+  int maxPages = (settings.playMode == 0) ? 5 : 4;
+
   // Page indicator dots at top
-  for (int i = 0; i < 3; i++) {
-    int x = 52 + (i * 12);
+  for (int i = 0; i < maxPages; i++) {
+    int x = 64 - ((maxPages * 6) / 2) + (i * 12);
     if (i == state.settingsPage) {
       display.fillCircle(x, 4, 3, WHITE);
     } else {
@@ -1179,59 +1265,80 @@ void drawSettingsScreen() {
   display.fillTriangle(8, 32, 16 + arrowOffset, 24, 16 + arrowOffset, 40, WHITE);
   display.fillTriangle(120, 32, 112 - arrowOffset, 24, 112 - arrowOffset, 40, WHITE);
 
-  switch (state.settingsPage) {
-    case 0:  // MIDI Channel
-      display.setTextSize(2);
-      display.setCursor(8, 12);
-      display.print("CH");
-      display.setTextSize(4);
-      if (settings.midiOutputAChannel + 1 < 10) {
-        display.setCursor(52, 20);
-      } else {
-        display.setCursor(36, 20);
-      }
-      display.print(settings.midiOutputAChannel + 1);
-      // Bottom label
-      display.fillRect(0, 56, 128, 8, WHITE);
-      display.setTextColor(BLACK);
-      display.setTextSize(1);
-      display.setCursor(28, 57);
-      display.print("MIDI CHANNEL");
-      display.setTextColor(WHITE);
-      break;
+  const char* label = "";
 
-    case 1:  // Clock Sync
-      display.setTextSize(2);
-      display.setCursor(8, 12);
-      display.print("CLK");
-      display.setTextSize(3);
-      display.setCursor(32, 24);
-      display.print(settings.midiClockSync ? "ON" : "OFF");
-      // Bottom label
-      display.fillRect(0, 56, 128, 8, WHITE);
-      display.setTextColor(BLACK);
-      display.setTextSize(1);
-      display.setCursor(28, 57);
-      display.print("CLOCK SYNC");
-      display.setTextColor(WHITE);
-      break;
-
-    case 2:  // Preset Bank
-      display.setTextSize(2);
-      display.setCursor(8, 12);
-      display.print("BANK");
-      display.setTextSize(2);
-      display.setCursor(20, 32);
-      display.print(presetBankInfo[settings.presetBank].name);
-      // Bottom label
-      display.fillRect(0, 56, 128, 8, WHITE);
-      display.setTextColor(BLACK);
-      display.setTextSize(1);
-      display.setCursor(28, 57);
-      display.print("PRESET BANK");
-      display.setTextColor(WHITE);
-      break;
+  if (settings.playMode == 0) {
+    // SCALE mode settings
+    switch (state.settingsPage) {
+      case 0:  // Play Mode
+        display.setTextSize(2);
+        display.setCursor(20, 20);
+        display.print("SCALE");
+        label = "PLAY MODE";
+        break;
+      case 1:  // Root Note
+        display.setTextSize(3);
+        display.setCursor(32, 18);
+        display.print(midiNoteNames[settings.rootNote]);
+        label = "ROOT NOTE";
+        break;
+      case 2:  // Scale Type
+        display.setTextSize(2);
+        display.setCursor(20, 22);
+        display.print(scaleNames[settings.scaleType]);
+        label = "SCALE TYPE";
+        break;
+      case 3:  // MIDI Channel
+        display.setTextSize(4);
+        display.setCursor((settings.midiOutputAChannel + 1 < 10) ? 52 : 36, 18);
+        display.print(settings.midiOutputAChannel + 1);
+        label = "MIDI CHANNEL";
+        break;
+      case 4:  // Clock Sync
+        display.setTextSize(3);
+        display.setCursor(32, 22);
+        display.print(settings.midiClockSync ? "ON" : "OFF");
+        label = "CLOCK SYNC";
+        break;
+    }
+  } else {
+    // PRESET mode settings
+    switch (state.settingsPage) {
+      case 0:  // Play Mode
+        display.setTextSize(2);
+        display.setCursor(16, 20);
+        display.print("PRESET");
+        label = "PLAY MODE";
+        break;
+      case 1:  // Preset Bank
+        display.setTextSize(2);
+        display.setCursor(16, 22);
+        display.print(presetBankInfo[settings.presetBank].name);
+        label = "PRESET BANK";
+        break;
+      case 2:  // MIDI Channel
+        display.setTextSize(4);
+        display.setCursor((settings.midiOutputAChannel + 1 < 10) ? 52 : 36, 18);
+        display.print(settings.midiOutputAChannel + 1);
+        label = "MIDI CHANNEL";
+        break;
+      case 3:  // Clock Sync
+        display.setTextSize(3);
+        display.setCursor(32, 22);
+        display.print(settings.midiClockSync ? "ON" : "OFF");
+        label = "CLOCK SYNC";
+        break;
+    }
   }
+
+  // Bottom label
+  display.fillRect(0, 56, 128, 8, WHITE);
+  display.setTextColor(BLACK);
+  display.setTextSize(1);
+  int labelLen = strlen(label);
+  display.setCursor(64 - (labelLen * 3), 57);
+  display.print(label);
+  display.setTextColor(WHITE);
 }
 
 //================================ STORAGE ================================
@@ -1253,7 +1360,17 @@ void saveSettings() {
 }
 
 void initPadsFromPreset() {
-  loadPresetBank();
+  loadCurrentMode();
+}
+
+void loadCurrentMode() {
+  if (settings.playMode == 0) {
+    // SCALE mode - generate diatonic chords from root + scale
+    loadScaleMode();
+  } else {
+    // PRESET mode - load preset bank
+    loadPresetBank();
+  }
 }
 
 void loadPresetBank() {
@@ -1271,6 +1388,115 @@ void loadPresetBank() {
 
     // Copy chord from selected bank
     pads[i].chord = bank[i];
+  }
+}
+
+void loadScaleMode() {
+  // Generate 9 diatonic chords from the selected scale
+  // Pads 1-7: Scale degrees I through VII
+  // Pad 8: V7 (dominant 7th)
+  // Pad 9: Imaj7 or Im7
+
+  settings.scaleType = constrain(settings.scaleType, 0, NUM_SCALES - 1);
+  int noteCount = scaleNoteCounts[settings.scaleType];
+
+  for (int i = 0; i < 9; i++) {
+    pads[i].color = padColors[i];
+    pads[i].triggerNote = settings.rootNote + i;
+    pads[i].velocity = 100;
+    pads[i].velocityVariation = 0;
+
+    // Build chord for this scale degree
+    ChordV2& chord = pads[i].chord;
+
+    // Reset chord
+    for (int j = 0; j < 8; j++) {
+      chord.intervals[j] = 0;
+      chord.octaveModifiers[j] = 0;
+      chord.velocityModifiers[j] = 0;
+      chord.isActive[j] = false;
+      chord.channel[j] = 0;
+    }
+
+    int scaleDegree = i % noteCount;  // Wrap for scales with fewer notes
+
+    if (i < 7 && noteCount >= 7) {
+      // Diatonic triads for degrees I-VII
+      int root = scaleIntervals[settings.scaleType][scaleDegree];
+      int third = scaleIntervals[settings.scaleType][(scaleDegree + 2) % noteCount];
+      int fifth = scaleIntervals[settings.scaleType][(scaleDegree + 4) % noteCount];
+
+      // Handle octave wrapping
+      if (third < root) third += 12;
+      if (fifth < root) fifth += 12;
+
+      chord.rootOffset = root;
+      chord.intervals[0] = 0;                    // Root
+      chord.intervals[1] = third - root;         // 3rd
+      chord.intervals[2] = fifth - root;         // 5th
+      chord.intervals[3] = 12;                   // Octave
+      chord.intervals[4] = (third - root) + 12;  // 3rd up octave
+
+      chord.velocityModifiers[0] = 0;
+      chord.velocityModifiers[1] = -5;
+      chord.velocityModifiers[2] = -5;
+      chord.velocityModifiers[3] = -10;
+      chord.velocityModifiers[4] = -15;
+
+      chord.isActive[0] = true;
+      chord.isActive[1] = true;
+      chord.isActive[2] = true;
+      chord.isActive[3] = true;
+      chord.isActive[4] = false;
+
+    } else if (i == 7) {
+      // Pad 8: V7 (dominant seventh)
+      int fifth = (noteCount >= 5) ? scaleIntervals[settings.scaleType][4] : 7;
+      chord.rootOffset = fifth;
+      chord.intervals[0] = 0;   // Root
+      chord.intervals[1] = 4;   // Major 3rd
+      chord.intervals[2] = 7;   // 5th
+      chord.intervals[3] = 10;  // b7
+      chord.intervals[4] = 12;  // Octave
+
+      chord.velocityModifiers[0] = 0;
+      chord.velocityModifiers[1] = -5;
+      chord.velocityModifiers[2] = -5;
+      chord.velocityModifiers[3] = -5;
+      chord.velocityModifiers[4] = -10;
+
+      chord.isActive[0] = true;
+      chord.isActive[1] = true;
+      chord.isActive[2] = true;
+      chord.isActive[3] = true;
+      chord.isActive[4] = false;
+
+    } else if (i == 8) {
+      // Pad 9: Imaj7 or Im7 depending on scale
+      chord.rootOffset = 0;
+      chord.intervals[0] = 0;   // Root
+
+      // Check if scale has major or minor 3rd
+      int thirdInterval = (noteCount >= 3) ? scaleIntervals[settings.scaleType][2] : 4;
+      bool isMajorThird = (thirdInterval == 4);
+
+      chord.intervals[1] = thirdInterval;  // 3rd from scale
+      chord.intervals[2] = 7;              // 5th
+      chord.intervals[3] = isMajorThird ? 11 : 10;  // maj7 or m7
+      chord.intervals[4] = 12;             // Octave
+
+      chord.velocityModifiers[0] = 0;
+      chord.velocityModifiers[1] = -5;
+      chord.velocityModifiers[2] = -5;
+      chord.velocityModifiers[3] = -5;
+      chord.velocityModifiers[4] = -10;
+
+      chord.isActive[0] = true;
+      chord.isActive[1] = true;
+      chord.isActive[2] = true;
+      chord.isActive[3] = true;
+      chord.isActive[4] = true;
+    }
   }
 }
 
