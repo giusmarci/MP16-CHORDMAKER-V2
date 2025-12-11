@@ -139,6 +139,11 @@ volatile bool midiTransportRunning = false; // Start/Stop state
 volatile unsigned long lastClockTime = 0;   // For detecting clock presence
 bool externalClockActive = false;           // True when receiving valid external clock
 
+// Arpeggiator note tracking (to prevent stuck notes)
+int lastArpPad = -1;                        // Which pad the last arp note was from
+int lastArpNoteIndex = -1;                  // Which note index was last played
+bool arpNotePlaying = false;                // Is an arp note currently sounding
+
 SettingsV2 settings;
 RuntimeState state;
 PadV2 pads[9];
@@ -406,15 +411,26 @@ void processButtonPresses() {
         state.editingPad = i;
         state.editNoteIndex = 0;
       } else {
+        // Stop any currently playing arp note before switching pads
+        if (state.arpRate > 0 && state.activePad >= 0 && state.activePad != i) {
+          stopCurrentArpNote();
+        }
         // Play chord
         padStates[i] = true;
         state.activePad = i;
+        // Reset arp index when switching pads
+        state.arpNoteIndex = 0;
+        state.arpDirection = true;
       }
     } else if (!keyStates[btnIndex] && previousKeyStates[btnIndex]) {
       // Button released
       if (!shiftState && !state.inEditMode) {
         padStates[i] = false;
         if (state.activePad == i) {
+          // Stop any arp note that's currently playing before clearing activePad
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
+          }
           state.activePad = -1;
         }
       }
@@ -433,12 +449,16 @@ void processButtonPresses() {
 
   // Handle arp buttons
   if (keyStates[BTN_ARP_DOWN] && !previousKeyStates[BTN_ARP_DOWN]) {
+    // Stop current arp note before changing rate
+    stopCurrentArpNote();
     state.arpRate = constrain(state.arpRate - 1, 0, 6);
     if (state.arpRate == 0) {
       state.arpNoteIndex = 0;
     }
   }
   if (keyStates[BTN_ARP_UP] && !previousKeyStates[BTN_ARP_UP]) {
+    // Stop current arp note before changing rate
+    stopCurrentArpNote();
     state.arpRate = constrain(state.arpRate + 1, 0, 6);
   }
 
@@ -510,8 +530,15 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
       // Note On - find matching pad
       for (int i = 0; i < 9; i++) {
         if (data1 == pads[i].triggerNote) {
+          // Stop any currently playing arp note before switching pads
+          if (state.arpRate > 0 && state.activePad >= 0 && state.activePad != i) {
+            stopCurrentArpNote();
+          }
           padStates[i] = true;
           state.activePad = i;
+          // Reset arp index when switching pads
+          state.arpNoteIndex = 0;
+          state.arpDirection = true;
         }
       }
     } else if (command == 0x80 || (command == 0x90 && data2 == 0)) {
@@ -520,6 +547,10 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
         if (data1 == pads[i].triggerNote) {
           padStates[i] = false;
           if (state.activePad == i) {
+            // Stop any arp note that's currently playing
+            if (state.arpRate > 0) {
+              stopCurrentArpNote();
+            }
             state.activePad = -1;
           }
         }
@@ -647,6 +678,7 @@ void advanceArpIndex(int pad) {
 }
 
 void playArpNote(int pad, int noteIndex) {
+  if (pad < 0 || pad >= 9) return;
   if (!pads[pad].chord.isActive[noteIndex]) return;
 
   ChordV2& chord = pads[pad].chord;
@@ -662,9 +694,16 @@ void playArpNote(int pad, int noteIndex) {
 
   int channel = chord.channel[noteIndex];
   sendNoteOn(note, velocity, getOutputChannel(channel));
+
+  // Track what's playing so we can stop it later
+  lastArpPad = pad;
+  lastArpNoteIndex = noteIndex;
+  arpNotePlaying = true;
 }
 
 void stopArpNote(int pad, int noteIndex) {
+  if (pad < 0 || pad >= 9) return;
+  if (noteIndex < 0 || noteIndex >= 8) return;
   if (!pads[pad].chord.isActive[noteIndex]) return;
 
   ChordV2& chord = pads[pad].chord;
@@ -675,6 +714,16 @@ void stopArpNote(int pad, int noteIndex) {
 
   int channel = chord.channel[noteIndex];
   sendNoteOff(note, 0, getOutputChannel(channel));
+}
+
+// Stop whatever arp note is currently playing
+void stopCurrentArpNote() {
+  if (arpNotePlaying && lastArpPad >= 0 && lastArpNoteIndex >= 0) {
+    stopArpNote(lastArpPad, lastArpNoteIndex);
+    arpNotePlaying = false;
+    lastArpPad = -1;
+    lastArpNoteIndex = -1;
+  }
 }
 
 //================================ CHORD PLAYBACK ================================
