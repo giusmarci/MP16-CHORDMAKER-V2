@@ -667,7 +667,41 @@ void processButtonPresses() {
     int btnIndex = CHORD_PAD_BUTTONS[i];
 
     if (keyStates[btnIndex] && !previousKeyStates[btnIndex]) {
-      // Button pressed - play chord
+      // SHIFT + PAD = Change root note (transpose)
+      // Pads 0-8 = semitone offsets from a base (C of current octave)
+      // This lets you quickly jump between keys while jamming
+      if (shiftState) {
+        // Base is C of the current root's octave
+        int baseNote = (settings.rootNote / 12) * 12;  // Round down to C
+        int newRoot = baseNote + i;  // Pad 0 = C, Pad 1 = C#, ... Pad 8 = G#
+        newRoot = constrain(newRoot, 24, 96);  // Keep in reasonable range
+
+        // If currently playing, transpose live
+        if (state.activePad >= 0) {
+          int oldRoot = settings.rootNote;
+          // Stop arp note first
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
+          }
+          // Stop current chord with old root
+          settings.rootNote = oldRoot;
+          stopChord(state.activePad);
+          settings.rootNote = newRoot;
+          // Regenerate chords with new root
+          loadScaleMode();
+          // Play chord with new root (arp will pick up)
+          if (state.arpRate == 0) {
+            playChord(state.activePad);
+          }
+        } else {
+          settings.rootNote = newRoot;
+          loadScaleMode();
+        }
+        saveSettings();
+        continue;  // Don't trigger chord play
+      }
+
+      // Normal press - play chord
       // Stop any currently playing notes before switching pads
       if (state.activePad >= 0 && state.activePad != i) {
         if (state.arpRate > 0) {
@@ -684,15 +718,17 @@ void processButtonPresses() {
       state.arpDirection = true;
       state.arpOctaveStep = 0;  // Reset octave cycling
     } else if (!keyStates[btnIndex] && previousKeyStates[btnIndex]) {
-      // Button released
-      padStates[i] = false;
-      // If HOLD mode is on, keep playing (don't stop notes or clear activePad)
-      if (!state.holdMode && state.activePad == i) {
-        // Stop any arp note that's currently playing before clearing activePad
-        if (state.arpRate > 0) {
-          stopCurrentArpNote();
+      // Button released (only if not shift action)
+      if (!shiftState) {
+        padStates[i] = false;
+        // If HOLD mode is on, keep playing (don't stop notes or clear activePad)
+        if (!state.holdMode && state.activePad == i) {
+          // Stop any arp note that's currently playing before clearing activePad
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
+          }
+          state.activePad = -1;
         }
-        state.activePad = -1;
       }
     }
   }
