@@ -162,6 +162,7 @@ volatile bool midiClockReceived = false;    // Flag set by interrupt when clock 
 volatile int midiClockCounter = 0;          // Counts clock pulses (24 PPQN)
 volatile bool midiTransportRunning = false; // Start/Stop state
 volatile unsigned long lastClockTime = 0;   // For detecting clock presence
+volatile int arpClockCount = 0;             // Counts clocks since last arp trigger (for sync)
 bool externalClockActive = false;           // True when receiving valid external clock
 bool clockPulseIndicator = false;           // Blinks on each clock pulse for visual feedback
 unsigned long lastClockPulseTime = 0;       // For clock indicator timing
@@ -865,9 +866,6 @@ const int clockDividers[7] = {
 // For gate timing
 unsigned long arpNoteOnTime = 0;
 bool arpGateOpen = false;
-
-// Clock-synced arp tracking - SIMPLE counter approach
-volatile int arpClockCount = 0;  // Counts clocks since last arp trigger
 
 // Calculate interval with pattern modifiers (for internal timing)
 int getPatternInterval(int baseInterval) {
