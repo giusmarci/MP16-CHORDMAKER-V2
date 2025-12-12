@@ -640,9 +640,9 @@ void processButtonPresses() {
 
         // Change preset
         if (encoderValue > 0) {
-          state.currentPreset = (state.currentPreset + 1) % NUM_TOTAL_PRESETS;
+          state.currentPreset = (state.currentPreset + 1) % NUM_PRESET_BANKS;
         } else {
-          state.currentPreset = (state.currentPreset + NUM_TOTAL_PRESETS - 1) % NUM_TOTAL_PRESETS;
+          state.currentPreset = (state.currentPreset + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
         }
         loadPreset(state.currentPreset);
 
@@ -1969,7 +1969,7 @@ void drawMainScreen() {
     // Top-center: preset name or scale info
     display.setCursor(40, 0);
     if (state.inPresetMode) {
-      display.print(allPresetNames[state.currentPreset]);
+      display.print(presetBankInfo[state.currentPreset].name);
     } else {
       display.print(scaleNames[settings.scaleType]);
     }
@@ -2030,7 +2030,7 @@ void drawMainScreen() {
     display.setTextSize(1);
     const char* topText;
     if (state.inPresetMode) {
-      topText = allPresetNames[state.currentPreset];
+      topText = presetBankInfo[state.currentPreset].name;
     } else {
       topText = scaleNames[settings.scaleType];
     }
@@ -2187,20 +2187,11 @@ void loadCurrentMode() {
   loadScaleMode();
 }
 
-// Load a preset (style bank or song preset)
+// Load a preset (style bank)
 void loadPreset(int presetIndex) {
-  presetIndex = constrain(presetIndex, 0, NUM_TOTAL_PRESETS - 1);
+  presetIndex = constrain(presetIndex, 0, NUM_PRESET_BANKS - 1);
 
-  const ChordV2* presetChords;
-
-  if (presetIndex < NUM_PRESET_BANKS) {
-    // Style preset (DEFAULT, JAZZ, POP, LOFI, EDM, SAD)
-    presetChords = presetBanks[presetIndex];
-  } else {
-    // Song preset (Let It Be, Hotel California, etc.)
-    int songIndex = presetIndex - NUM_PRESET_BANKS;
-    presetChords = songPresets[songIndex];
-  }
+  const ChordV2* presetChords = presetBanks[presetIndex];
 
   // Copy preset chords to pads
   for (int i = 0; i < 9; i++) {
