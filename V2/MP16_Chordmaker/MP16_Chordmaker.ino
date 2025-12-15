@@ -782,14 +782,8 @@ void processButtonPresses() {
       // Button released (only if not shift action)
       if (!shiftState) {
         padStates[i] = false;
-        // If HOLD mode is on, keep playing (don't stop notes or clear activePad)
-        if (!state.holdMode && state.activePad == i) {
-          // Stop any arp note that's currently playing before clearing activePad
-          if (state.arpRate > 0) {
-            stopCurrentArpNote();
-          }
-          state.activePad = -1;
-        }
+        // Note: chord stopping is handled in updateMIDI based on padStates change
+        // This ensures proper coordination between pad switching and release
       }
     }
   }
@@ -932,18 +926,32 @@ void updateMIDI() {
     clockPulseIndicator = false;
   }
 
-  // Process pad state changes (only when arp is off)
-  if (state.arpRate == 0) {
-    for (int i = 0; i < 9; i++) {
-      if (padStates[i] && !previousPadStates[i]) {
+  // Process pad state changes
+  for (int i = 0; i < 9; i++) {
+    if (padStates[i] && !previousPadStates[i]) {
+      // Pad pressed - only play chord if arp is off (arp handles its own note playing)
+      if (state.arpRate == 0) {
         playChord(i);
-      } else if (!padStates[i] && previousPadStates[i]) {
-        // Only stop chord if HOLD mode is off
-        if (!state.holdMode) {
-          stopChord(i);
-        }
-        // If HOLD is on, chord keeps playing (activePad remains set)
       }
+    } else if (!padStates[i] && previousPadStates[i]) {
+      // Pad released
+      if (!state.holdMode) {
+        // HOLD off: stop notes when released
+        // Only stop if this pad is still active OR no pad is active
+        // If another pad is active, the switching logic already stopped this chord
+        if (state.activePad == i || state.activePad == -1) {
+          if (state.arpRate == 0) {
+            stopChord(i);
+          } else {
+            // Arp mode: stop current arp note
+            stopCurrentArpNote();
+          }
+          if (state.activePad == i) {
+            state.activePad = -1;
+          }
+        }
+      }
+      // HOLD mode: keep notes/arp playing, activePad stays set
     }
   }
 }
@@ -962,9 +970,13 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
       // Note On - find matching pad
       for (int i = 0; i < 9; i++) {
         if (data1 == pads[i].triggerNote) {
-          // Stop any currently playing arp note before switching pads
-          if (state.arpRate > 0 && state.activePad >= 0 && state.activePad != i) {
-            stopCurrentArpNote();
+          // Stop any currently playing notes before switching pads
+          if (state.activePad >= 0 && state.activePad != i) {
+            if (state.arpRate > 0) {
+              stopCurrentArpNote();
+            }
+            // Stop held chord if switching pads
+            stopChord(state.activePad);
           }
           padStates[i] = true;
           state.activePad = i;
@@ -975,17 +987,11 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
         }
       }
     } else if (command == 0x80 || (command == 0x90 && data2 == 0)) {
-      // Note Off
+      // Note Off - just set padState, let updateMIDI handle chord/arp stopping
       for (int i = 0; i < 9; i++) {
         if (data1 == pads[i].triggerNote) {
           padStates[i] = false;
-          if (state.activePad == i) {
-            // Stop any arp note that's currently playing
-            if (state.arpRate > 0) {
-              stopCurrentArpNote();
-            }
-            state.activePad = -1;
-          }
+          // updateMIDI will detect the state change and stop chord/arp appropriately
         }
       }
     }
