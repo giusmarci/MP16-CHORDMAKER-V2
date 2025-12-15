@@ -70,6 +70,9 @@ bool shiftState = false;
 bool previousShiftState = false;
 bool encoderState = false;
 bool previousEncoderState = false;
+bool encoderButtonRaw = false;         // Raw reading before debounce
+unsigned long encoderDebounceTime = 0; // Last state change time
+#define ENCODER_DEBOUNCE_MS 30         // Debounce delay
 bool keyStates[16] = {false};
 bool previousKeyStates[16] = {false};
 bool padStates[9] = {false};
@@ -409,7 +412,17 @@ void checkKeys() {
   }
 
   shiftState = !digitalRead(SHIFT_PIN);
-  encoderState = !digitalRead(ENCODER_S);
+
+  // Debounced encoder button reading
+  bool rawReading = !digitalRead(ENCODER_S);
+  if (rawReading != encoderButtonRaw) {
+    encoderDebounceTime = millis();  // Reset debounce timer on change
+    encoderButtonRaw = rawReading;
+  }
+  // Only update encoderState if stable for debounce period
+  if ((millis() - encoderDebounceTime) > ENCODER_DEBOUNCE_MS) {
+    encoderState = encoderButtonRaw;
+  }
 
   // Scan key matrix
   for (int row = 0; row < 4; row++) {
