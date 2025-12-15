@@ -17,46 +17,90 @@ const char* midiNoteNames[128] = {
 };
 
 // Scale Types (expanded from V1)
-#define NUM_SCALES 14
+#define NUM_SCALES 32
 
 const char* scaleNames[NUM_SCALES] = {
-  "Major",       // Ionian
-  "Minor",       // Natural Minor / Aeolian
-  "Dorian",
-  "Phrygian",
-  "Lydian",
-  "Mixolyd",     // Mixolydian
-  "Locrian",
-  "HarmMin",     // Harmonic Minor
-  "MelMin",      // Melodic Minor
-  "PentMaj",     // Major Pentatonic
-  "PentMin",     // Minor Pentatonic
-  "Blues",
-  "WholeTn",     // Whole Tone
-  "Chromat"      // Chromatic
+  "Major",        // 0
+  "Minor",        // 1
+  "Dorian",       // 2
+  "Phrygian",     // 3
+  "Lydian",       // 4
+  "Mixolyd",      // 5
+  "Locrian",      // 6
+  "HarmMin",      // 7
+  "JazzMin",      // 8
+  "PentMaj",      // 9
+  "PentMin",      // 10
+  "Blues",        // 11
+  "WholeTn",      // 12
+  "Chromat",      // 13
+
+  "PhrDom",       // 14
+  "LydDom",       // 15
+  "Altered",      // 16
+  "DorB2",        // 17
+  "DblHrm",       // 18
+  "HungMin",      // 19
+  "OctHW",        // 20
+  "OctWH",        // 21
+
+  // --- NEW +10 ---
+  "UkrDor",       // 22 Ukrainian Dorian (Dorian #4)
+  "LydAug",       // 23 Lydian Augmented (JazzMin mode 3)
+  "Loc#2",        // 24 Locrian #2 (JazzMin mode 6)
+  "MajBeb",       // 25 Major Bebop (8-note)
+  "DomBeb",       // 26 Dominant Bebop (8-note)
+  "MinBeb",       // 27 Minor Bebop / Bebop Dorian (8-note)
+  "NeaMin",       // 28 Neapolitan Minor
+  "NeaMaj",       // 29 Neapolitan Major
+  "Enigmat",      // 30 Enigmatic
+  "Hiraj"         // 31 Hirajoshi (Japanese pentatonic)
 };
 
-// Scale intervals in semitones
+// Scale intervals in semitones (-1 padding)
 const int scaleIntervals[NUM_SCALES][12] = {
-  {0, 2, 4, 5, 7, 9, 11, -1, -1, -1, -1, -1},     // Major (7 notes)
-  {0, 2, 3, 5, 7, 8, 10, -1, -1, -1, -1, -1},     // Minor (7 notes)
-  {0, 2, 3, 5, 7, 9, 10, -1, -1, -1, -1, -1},     // Dorian (7 notes)
-  {0, 1, 3, 5, 7, 8, 10, -1, -1, -1, -1, -1},     // Phrygian (7 notes)
-  {0, 2, 4, 6, 7, 9, 11, -1, -1, -1, -1, -1},     // Lydian (7 notes)
-  {0, 2, 4, 5, 7, 9, 10, -1, -1, -1, -1, -1},     // Mixolydian (7 notes)
-  {0, 1, 3, 5, 6, 8, 10, -1, -1, -1, -1, -1},     // Locrian (7 notes)
-  {0, 2, 3, 5, 7, 8, 11, -1, -1, -1, -1, -1},     // Harmonic Minor (7 notes)
-  {0, 2, 3, 5, 7, 9, 11, -1, -1, -1, -1, -1},     // Melodic Minor (7 notes)
-  {0, 2, 4, 7, 9, -1, -1, -1, -1, -1, -1, -1},    // Major Pentatonic (5 notes)
-  {0, 3, 5, 7, 10, -1, -1, -1, -1, -1, -1, -1},   // Minor Pentatonic (5 notes)
-  {0, 3, 5, 6, 7, 10, -1, -1, -1, -1, -1, -1},    // Blues (6 notes)
-  {0, 2, 4, 6, 8, 10, -1, -1, -1, -1, -1, -1},    // Whole Tone (6 notes)
-  {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}          // Chromatic (12 notes)
+  {0,2,4,5,7,9,11,-1,-1,-1,-1,-1},          // 0 Major
+  {0,2,3,5,7,8,10,-1,-1,-1,-1,-1},          // 1 Minor
+  {0,2,3,5,7,9,10,-1,-1,-1,-1,-1},          // 2 Dorian
+  {0,1,3,5,7,8,10,-1,-1,-1,-1,-1},          // 3 Phrygian
+  {0,2,4,6,7,9,11,-1,-1,-1,-1,-1},          // 4 Lydian
+  {0,2,4,5,7,9,10,-1,-1,-1,-1,-1},          // 5 Mixolydian
+  {0,1,3,5,6,8,10,-1,-1,-1,-1,-1},          // 6 Locrian
+  {0,2,3,5,7,8,11,-1,-1,-1,-1,-1},          // 7 Harmonic Minor
+  {0,2,3,5,7,9,11,-1,-1,-1,-1,-1},          // 8 Jazz Minor (melodic minor asc)
+  {0,2,4,7,9,-1,-1,-1,-1,-1,-1,-1},         // 9 Major Pent
+  {0,3,5,7,10,-1,-1,-1,-1,-1,-1,-1},        // 10 Minor Pent
+  {0,3,5,6,7,10,-1,-1,-1,-1,-1,-1},         // 11 Blues
+  {0,2,4,6,8,10,-1,-1,-1,-1,-1,-1},         // 12 Whole Tone
+  {0,1,2,3,4,5,6,7,8,9,10,11},              // 13 Chromatic
+
+  {0,1,4,5,7,8,10,-1,-1,-1,-1,-1},          // 14 Phrygian Dominant
+  {0,2,4,6,7,9,10,-1,-1,-1,-1,-1},          // 15 Lydian Dominant
+  {0,1,3,4,6,8,10,-1,-1,-1,-1,-1},          // 16 Altered / Super Locrian
+  {0,1,3,5,7,9,10,-1,-1,-1,-1,-1},          // 17 Dorian b2
+  {0,1,4,5,7,8,11,-1,-1,-1,-1,-1},          // 18 Double Harmonic
+  {0,2,3,6,7,8,11,-1,-1,-1,-1,-1},          // 19 Hungarian Minor
+  {0,1,3,4,6,7,9,10,-1,-1,-1,-1},           // 20 Octatonic Half-Whole
+  {0,2,3,5,6,8,9,11,-1,-1,-1,-1},           // 21 Octatonic Whole-Half
+
+  // --- NEW +10 intervals ---
+  {0,2,3,6,7,9,10,-1,-1,-1,-1,-1},          // 22 Ukrainian Dorian (Dorian #4)
+  {0,2,4,6,8,9,11,-1,-1,-1,-1,-1},          // 23 Lydian Augmented
+  {0,2,3,5,6,8,10,-1,-1,-1,-1,-1},          // 24 Locrian #2
+  {0,2,4,5,7,8,9,11,-1,-1,-1,-1},           // 25 Major Bebop (8 notes)
+  {0,2,4,5,7,9,10,11,-1,-1,-1,-1},          // 26 Dominant Bebop (8 notes)
+  {0,2,3,4,5,7,9,10,-1,-1,-1,-1},           // 27 Minor Bebop / Bebop Dorian (8 notes)
+  {0,1,3,5,7,8,11,-1,-1,-1,-1,-1},          // 28 Neapolitan Minor
+  {0,1,3,5,7,9,11,-1,-1,-1,-1,-1},          // 29 Neapolitan Major
+  {0,1,4,6,8,10,11,-1,-1,-1,-1,-1},         // 30 Enigmatic
+  {0,2,3,7,8,-1,-1,-1,-1,-1,-1,-1}          // 31 Hirajoshi (5 notes)
 };
 
 // Number of notes in each scale
 const int scaleNoteCounts[NUM_SCALES] = {
-  7, 7, 7, 7, 7, 7, 7, 7, 7, 5, 5, 6, 6, 12
+  7,7,7,7,7,7,7,7,7, 5,5,6,6,12,
+  7,7,7,7,7,7, 8,8,
+  7,7,7, 8,8,8, 7,7,7, 5
 };
 
 // Chord quality types

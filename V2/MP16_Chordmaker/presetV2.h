@@ -27,7 +27,7 @@ struct PresetBank {
 };
 
 // Number of preset banks
-#define NUM_PRESET_BANKS 16
+#define NUM_PRESET_BANKS 26
 
 // Bank names and chord names
 const PresetBank presetBankInfo[NUM_PRESET_BANKS] = {
@@ -107,10 +107,27 @@ const PresetBank presetBankInfo[NUM_PRESET_BANKS] = {
     {"Cm", "Ab", "Eb", "Bb", "Fm", "Gm", "Db", "Bbsus", "Cm9"}
   },
   // 15: TRAP - Dark trap/hip-hop
-  {
-    "TRAP",
-    {"Cm7", "Abmaj7", "Ebmaj7", "Bb", "Fm7", "Gm7", "Dbmaj7", "Bb7", "Cm9"}
-  }
+  {"TRAP",  {"Cm7", "Abmaj7", "Ebmaj7", "Bb", "Fm7", "Gm7", "Dbmaj7", "Bb7", "Cm9"}},
+
+  {"HOUSE", {"C6/9","Am9","Dm9","G13","Fmaj9","Em7","Gsus4","Bbmaj7","Cmaj9"}},
+
+  {"TECHNO",  {"Csus2","Csus4","C5","Abadd9","Dbadd9","Gsus4","G7sus","Fadd9","Cadd9"}},
+
+  {"VAPOR", {"Cmaj7","Ebmaj7","Abmaj7","Emaj7","Fm9","Dbmaj7","Am7","G7sus","C6/9"}},
+
+  {"SYNTHWAVE", {"Am(add9)","Fmaj7","Gadd9","Em7","Dm(add9)","Cmaj7","Bbadd9","E7sus","Am9"}},
+
+  {"SOUNDSCAPE", {"Cadd9","Csus2","Fsus2","Gsus4","Am11","Dm11","Bbmaj7","F6/9","Cmaj9"}},
+
+  {"EXPERIMENT", {"Cmaj7","Cdim7","Db7","G7alt","Abmaj7","Emaj7","F#m7b5","A7#5","Cmaj9"}},
+
+  {"LIQUID", {"Cmaj9","Am9","Dm9","G9","Fmaj9","Em7","Bbmaj7","E7b9","C6/9"}},
+
+  {"INDIE", {"Cadd9","Gadd9","Am(add9)","Fadd9","Dsus2","Em7","Gsus4","Bbadd9","Cmaj7"}},
+
+  {"DUB", {"C","F","G7","Am","Dm7","Fmaj7","Gsus4","Bb","C7"}},
+
+  {"PHRYGIAN", {"Cm","Db","Bbdim","Ab","Gm","Fm","Dbmaj7","G7b9","Cm9"}}
 };
 
 // ============================================================================
@@ -497,6 +514,256 @@ const ChordV2 presetTrap[9] = {
   {0, {0, 3, 7, 10, 14, 0, 0, 0}, {0, 0, 0, 0, 0, -1, -1, -1}, {0, -5, -10, -5, 0, 0, 0, 0}, {true, true, true, true, true, false, false, false}, {0, 0, 0, 0, 0, 0, 0, 0}}
 };
 
+// ============================================================================
+// PRESET BANK: HOUSE - Deep/Piano House (6/9, 9ths, 13ths, sus stabs)
+// ============================================================================
+const ChordV2 presetHouse[9] = {
+  // C6/9 - 1,3,5,6,9
+  {0,  {0, 4, 7, 9, 14, 0, 0, 0},  {0,0,0,0,0,0,0,-1},  {0,-5,-10,-5,0,0,0,0},  {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Am9 - 1,b3,5,b7,9
+  {9,  {0, 3, 7, 10, 14, 0, 0, 0}, {0,0,0,0,0,0,0,-1},  {0,-5,-10,-5,0,0,0,0},  {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dm9 - 1,b3,5,b7,9
+  {2,  {0, 3, 7, 10, 14, 0, 0, 0}, {0,0,0,0,0,0,0,-1},  {0,-5,-10,-5,0,0,0,0},  {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // G13 - 1,3,b7,9,13
+  {7,  {0, 4, 10, 14, 21, 0, 0, 0}, {0,0,0,0,0,0,0,-1},  {0,-5,-5,-5,-5,0,0,0},  {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fmaj9 - 1,3,5,7,9
+  {5,  {0, 4, 7, 11, 14, 0, 0, 0}, {0,0,0,0,0,0,0,-1},  {0,-5,-10,-5,0,0,0,0},  {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Em7 - 1,b3,5,b7
+  {4,  {0, 3, 7, 10, 0, 0, 0, 0},  {0,0,0,0,0,0,0,-1},  {0,-5,-10,-5,0,0,0,0},  {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Gsus4 - 1,4,5
+  {7,  {0, 5, 7, 0, 0, 0, 0, 0},   {0,0,0,0,0,0,0,-1},  {0,-5,-10,0,0,0,0,0},   {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Bbmaj7 - 1,3,5,7
+  {10, {0, 4, 7, 11, 0, 0, 0, 0},  {0,0,0,0,0,0,0,-1},  {0,-5,-10,-5,0,0,0,0},   {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Cmaj9 - 1,3,5,7,9
+  {0,  {0, 4, 7, 11, 14, 0, 0, 0}, {0,0,0,0,0,0,0,-1},  {0,-5,-10,-5,0,0,0,0},  {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: TECHNO - Minimal/Hypnotic (pedal + sus + bII stabs)
+// ============================================================================
+const ChordV2 presetTechno[9] = {
+  // Csus2 - 1,2,5
+  {0, {0, 2, 7, 0,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0}, {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Csus4 - 1,4,5
+  {0, {0, 5, 7, 0,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0}, {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // C5 - 1,5
+  {0, {0, 7, 0,0,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-10,0,0,0,0,0,0},  {true,true,false,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Abadd9 - 1,3,5,9
+  {8, {0, 4, 7, 14,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dbadd9 - 1,3,5,9
+  {1, {0, 4, 7, 14,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Gsus4 - 1,4,5
+  {7, {0, 5, 7, 0,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0}, {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // G7sus - 1,4,5,b7,9
+  {7, {0, 5, 7, 10, 14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fadd9 - 1,3,5,9
+  {5, {0, 4, 7, 14,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Cadd9 - 1,3,5,9
+  {0, {0, 4, 7, 14,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: VAPOR - Lush maj7 planing + chromatic mediants
+// ============================================================================
+const ChordV2 presetVapor[9] = {
+  // Cmaj7
+  {0,  {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Ebmaj7
+  {3,  {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Abmaj7
+  {8,  {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Emaj7
+  {4,  {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fm9 - 1,b3,5,b7,9
+  {5,  {0,3,7,10,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dbmaj7
+  {1,  {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Am7 - 1,b3,5,b7
+  {9,  {0,3,7,10,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // G7sus - 1,4,5,b7,9
+  {7,  {0,5,7,10,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // C6/9
+  {0,  {0,4,7,9,14,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: SYNTHWAVE - 80s emotional minor + add9/maj7 colors
+// ============================================================================
+const ChordV2 presetSynthwave[9] = {
+  // Am(add9) - 1,b3,5,9
+  {9, {0,3,7,14,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fmaj7
+  {5, {0,4,7,11,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Gadd9 - 1,3,5,9
+  {7, {0,4,7,14,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Em7
+  {4, {0,3,7,10,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dm(add9)
+  {2, {0,3,7,14,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Cmaj7
+  {0, {0,4,7,11,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Bbadd9
+  {10,{0,4,7,14,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // E7sus - 1,4,5,b7,9
+  {4, {0,5,7,10,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Am9
+  {9, {0,3,7,10,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: SOUNDSCAPE - Drone/pads (sus, add11, 11ths, 6/9)
+// ============================================================================
+const ChordV2 presetSoundscape[9] = {
+  // Cadd9
+  {0, {0,4,7,14,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Csus2
+  {0, {0,2,7,0,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0}, {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fsus2
+  {5, {0,2,7,0,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0}, {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Gsus4
+  {7, {0,5,7,0,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0}, {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Am11 - 1,b3,5,b7,9,11
+  {9, {0,3,7,10,14,17,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,true,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dm11 - 1,b3,5,b7,9,11
+  {2, {0,3,7,10,14,17,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,true,false,false}, {0,0,0,0,0,0,0,0}},
+  // Bbmaj7
+  {10,{0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // F6/9
+  {5, {0,4,7,9,14,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Cmaj9
+  {0, {0,4,7,11,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: EXPERIMENT - Controlled outside (dim, tritone-ish, altered)
+// ============================================================================
+const ChordV2 presetExperiment[9] = {
+  // Cmaj7
+  {0, {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Cdim7 - 1,b3,b5,bb7(6)
+  {0, {0,3,6,9,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Db7 - 1,3,5,b7
+  {1, {0,4,7,10,0,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // G7alt - 1,3,b7,b9,#9,b13
+  {7, {0,4,10,13,15,20,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-5,-5,-5,-10,0,0}, {true,true,true,true,true,true,false,false}, {0,0,0,0,0,0,0,0}},
+  // Abmaj7
+  {8, {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Emaj7
+  {4, {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // F#m7b5 - 1,b3,b5,b7
+  {6, {0,3,6,10,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // A7#5 - 1,3,#5,b7,9
+  {9, {0,4,8,10,14,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Cmaj9
+  {0, {0,4,7,11,14,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: LIQUID - DnB / Liquid (smooth maj9/min9/6-9 + soft b9)
+// ============================================================================
+const ChordV2 presetLiquid[9] = {
+  // Cmaj9
+  {0, {0,4,7,11,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Am9
+  {9, {0,3,7,10,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dm9
+  {2, {0,3,7,10,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // G9 - 1,3,5,b7,9
+  {7, {0,4,7,10,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fmaj9
+  {5, {0,4,7,11,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Em7
+  {4, {0,3,7,10,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Bbmaj7
+  {10,{0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // E7b9 - 1,3,5,b7,b9
+  {4, {0,4,7,10,13,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,-5,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // C6/9
+  {0, {0,4,7,9,14,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: INDIE - Dream Pop (open add9/sus2/sus4)
+// ============================================================================
+const ChordV2 presetIndie[9] = {
+  // Cadd9
+  {0, {0,4,7,14,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Gadd9
+  {7, {0,4,7,14,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Am(add9)
+  {9, {0,3,7,14,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fadd9
+  {5, {0,4,7,14,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dsus2
+  {2, {0,2,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Em7
+  {4, {0,3,7,10,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Gsus4
+  {7, {0,5,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Bbadd9
+  {10,{0,4,7,14,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Cmaj7
+  {0, {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: DUB - Reggae/Dub skank stabs (simple, dominant flavor)
+// ============================================================================
+const ChordV2 presetDub[9] = {
+  // C (triad)
+  {0, {0,4,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // F
+  {5, {0,4,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // G7
+  {7, {0,4,7,10,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Am
+  {9, {0,3,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dm7
+  {2, {0,3,7,10,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fmaj7
+  {5, {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Gsus4
+  {7, {0,5,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Bb
+  {10,{0,4,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // C7
+  {0, {0,4,7,10,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
+// ============================================================================
+// PRESET BANK: PHRYGIAN - Dark modal (bII, minor gravity, V7b9)
+// ============================================================================
+const ChordV2 presetPhrygian[9] = {
+  // Cm
+  {0,  {0,3,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Db
+  {1,  {0,4,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Bbdim (triad) - 1,b3,b5
+  {10, {0,3,6,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Ab
+  {8,  {0,4,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Gm
+  {7,  {0,3,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Fm
+  {5,  {0,3,7,0,0,0,0,0},   {0,0,0,0,0,0,0,-1}, {0,-5,-10,0,0,0,0,0},  {true,true,true,false,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Dbmaj7
+  {1,  {0,4,7,11,0,0,0,0},  {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,false,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // G7b9 - 1,3,5,b7,b9
+  {7,  {0,4,7,10,13,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,-5,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}},
+  // Cm9 - 1,b3,5,b7,9
+  {0,  {0,3,7,10,14,0,0,0}, {0,0,0,0,0,0,0,-1}, {0,-5,-10,-5,0,0,0,0}, {true,true,true,true,true,false,false,false}, {0,0,0,0,0,0,0,0}}
+};
+
+
 // Array of pointers to all preset banks
 const ChordV2* presetBanks[NUM_PRESET_BANKS] = {
   presetDefault,
@@ -514,7 +781,19 @@ const ChordV2* presetBanks[NUM_PRESET_BANKS] = {
   presetBlues,
   presetLatin,
   presetCinema,
-  presetTrap
+  presetTrap,
+
+  // --- NEW BANKS ---
+  presetHouse,
+  presetTechno,
+  presetVapor,
+  presetSynthwave,
+  presetSoundscape,
+  presetExperiment,
+  presetLiquid,
+  presetIndie,
+  presetDub,
+  presetPhrygian
 };
 
 #endif // PRESETS_V2_H
