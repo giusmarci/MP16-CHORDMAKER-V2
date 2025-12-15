@@ -1,8 +1,10 @@
 # MP16 ChordMaker V2
 
+**Version 2.1.0**
+
 Custom firmware for the **PATS MP-16** — a 16-key, RGB-lit MIDI macropad you assemble yourself. Connect to any DAW, synth, or MIDI device via USB or TRS MIDI.
 
-This V2 firmware reimagines the MP-16 as a **9-pad chord controller** with dedicated controls for octave, arpeggiator, settings, and HOLD mode. Each pad triggers rich, customizable chords with up to 8 voices, a full-featured arpeggiator with MIDI clock sync, and 16 style preset banks for instant inspiration.
+This V2 firmware reimagines the MP-16 as a **9-pad chord controller** with dedicated controls for octave, arpeggiator, settings, and HOLD mode. Each pad triggers rich, customizable chords with up to 8 voices, a full-featured arpeggiator with MIDI clock sync, 16 style preset banks, and a **Generative Mode** that creates evolving harmonies automatically.
 
 ## Credits
 
@@ -29,6 +31,7 @@ Built on top of the original MP16 firmware by **Samuel Verburg** ([@samuelverbur
 - **Advanced Settings:** Gate length, swing amount, humanization, velocity variation
 - **Octave Range:** Expand arpeggios across multiple octaves
 - **Clock Sync:** External MIDI clock input or internal BPM (20-300)
+- **Play Chords:** When enabled, plays full chords alongside arpeggiated notes (Arp Settings page 8)
 
 ### Dual Play Modes
 
@@ -57,11 +60,43 @@ Built on top of the original MP16 firmware by **Samuel Verburg** ([@samuelverbur
 | 14 | CINEMA | Epic cinematic chords (Hans Zimmer style) |
 | 15 | TRAP | Dark trap/hip-hop minor progressions |
 
+### Generative Mode (NEW in v2.1)
+
+Automatic evolving harmonies that mutate while you hold a chord.
+
+**Access:**
+- **Button 11** → Special Modes menu
+- Rotate encoder → select "Generative"
+- Click encoder → enter settings
+
+**Settings:**
+| Setting | Values | Description |
+|---------|--------|-------------|
+| Speed | 0-100% | Mutation rate. 0=slow, 100=rapid |
+| Type | Chords/Scales | Chords=hop between pads, Scales=morph scale types |
+
+**Controls:**
+- Rotate encoder = change value
+- Click encoder = next setting (Speed → Type → exit)
+- Button 11 = exit menu anytime
+
+**Using it:**
+1. Enable Generative, exit menu
+2. Hold any chord pad
+3. Harmony evolves automatically
+4. LED flashes cyan on mutation
+
+### Screensaver (NEW in v2.1)
+
+A mesmerizing starfield animation activates after 30 seconds of inactivity. Stars fly outward from the center, accelerating as they approach the edges. Any button press or encoder movement instantly returns to normal display.
+
 ### Quick Controls
 - **Encoder:** Change root key in real-time
 - **Shift + Encoder:** Change scale type
 - **Shift + Pad:** Quick root key change to that note
 - **Shift + Encoder Click:** Toggle between Scale and Preset modes
+- **Button 11:** Open Special Modes menu (Generative Mode)
+- **Shift + Arp+:** Open Arp Settings menu
 
 ### Visual Feedback
 - 128x64 OLED display with piano visualization
@@ -76,7 +111,7 @@ Built on top of the original MP16 firmware by **Samuel Verburg** ([@samuelverbur
 ```
 [0] [1] [2] [3]     Chord1  Chord2  Chord3  Settings
 [4] [5] [6] [7]     Chord4  Chord5  Chord6  HOLD
-[8] [9] [10][11]    Chord7  Chord8  Chord9  ArpMenu
+[8] [9] [10][11]    Chord7  Chord8  Chord9  SpecialModes
 [12][13][14][15]    Oct-    Oct+    Arp-    Arp+
 ```
 
@@ -87,11 +122,11 @@ Built on top of the original MP16 firmware by **Samuel Verburg** ([@samuelverbur
 | 0-2, 4-6, 8-10 | Play chord | Quick root key change |
 | 3 | Toggle Settings menu | - |
 | 7 | Toggle HOLD mode | Max Notes menu |
-| 11 | Toggle Arp Settings | - |
+| 11 | Special Modes menu | - |
 | 12 | Octave down | - |
 | 13 | Octave up | - |
 | 14 | Arp rate down | - |
-| 15 | Arp rate up | - |
+| 15 | Arp rate up | Arp Settings menu |
 
 ## Installation
 
