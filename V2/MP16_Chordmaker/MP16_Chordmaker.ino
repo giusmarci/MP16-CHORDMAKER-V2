@@ -117,11 +117,12 @@ struct SettingsV2 {
   // Arp settings
   int arpPattern = 0;             // 0=straight, 1=swing, 2=dotted, 3=triplet, 4=humanize, 5=stutter
   int arpGate = 80;               // Gate length as % (10-100)
-  int arpSwing = 50;              // Swing amount 0-100 (50=straight)
+  int arpSwing = 0;               // Swing amount 0-100 (50=straight, default 0)
   int arpHumanize = 0;            // Timing randomness 0-50ms
   int arpVelocityVar = 0;         // Velocity variation 0-50
   int arpOctaveRange = 0;         // 0=none, 1=+1oct, 2=+2oct, 3=-1oct, 4=+/-1oct
-  int maxNotesPerChord = 3;       // Max notes per chord (1-8, default 3)
+  int maxNotesPerChord = 8;       // Max notes per chord (1-8, default 8)
+  bool arpPlayChords = false;     // Play full chord alongside arp notes (default off)
 };
 
 // Arp pattern names
@@ -154,7 +155,7 @@ struct RuntimeState {
   bool arpSettingsEditing = false; // True when editing a value in arp settings
   bool inMaxNotesMenu = false;    // Max notes menu (toggle with Shift+7)
   int settingsPage = 0;           // Settings menu item index
-  int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave
+  int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave, 6=Mode, 7=Chords
   bool holdMode = false;          // HOLD mode - sustain notes after releasing pad
   bool inPresetMode = false;      // Preset mode (Shift+Encoder click to toggle)
   int currentPreset = 0;          // Current preset index (0 to NUM_PRESETS-1)
@@ -503,9 +504,9 @@ void processButtonPresses() {
   }
 
   // Handle arp settings mode
-  // Pages: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=VelVar, 5=Octave, 6=Mode
+  // Pages: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=VelVar, 5=Octave, 6=Mode, 7=PlayChords
   // Click to edit, click to exit edit (same as main settings)
-  #define NUM_ARP_SETTINGS_ITEMS 7
+  #define NUM_ARP_SETTINGS_ITEMS 8
   if (state.inArpSettings) {
     if (state.arpSettingsEditing) {
       // EDITING MODE - encoder changes value, click exits edit
@@ -548,6 +549,9 @@ void processButtonPresses() {
             } else {
               state.arpMode = (state.arpMode + NUM_ARP_MODES - 1) % NUM_ARP_MODES;
             }
+            break;
+          case 7: // Play Chords (on/off)
+            settings.arpPlayChords = !settings.arpPlayChords;
             break;
         }
         encoderValue = 0;
@@ -929,8 +933,12 @@ void updateMIDI() {
   // Process pad state changes
   for (int i = 0; i < 9; i++) {
     if (padStates[i] && !previousPadStates[i]) {
-      // Pad pressed - only play chord if arp is off (arp handles its own note playing)
+      // Pad pressed
       if (state.arpRate == 0) {
+        // Arp off: play chord normally
+        playChord(i);
+      } else if (settings.arpPlayChords) {
+        // Arp on + Play Chords enabled: play chord alongside arp
         playChord(i);
       }
     } else if (!padStates[i] && previousPadStates[i]) {
@@ -945,6 +953,10 @@ void updateMIDI() {
           } else {
             // Arp mode: stop current arp note
             stopCurrentArpNote();
+            // If Play Chords was on, also stop the chord
+            if (settings.arpPlayChords) {
+              stopChord(i);
+            }
           }
           if (state.activePad == i) {
             state.activePad = -1;
@@ -1732,9 +1744,9 @@ void updateDisplay() {
 
 void drawArpSettingsScreen() {
   // Marquee style single-item menu (same as settings)
-  // Items: Pattern, Gate, Swing, Humanize, Velocity, Octave, Mode
+  // Items: Pattern, Gate, Swing, Humanize, Velocity, Octave, Mode, Chords
 
-  const char* labels[7] = {"PATTERN", "GATE", "SWING", "HUMANIZE", "VELOCITY", "OCTAVE", "MODE"};
+  const char* labels[8] = {"PATTERN", "GATE", "SWING", "HUMANIZE", "VELOCITY", "OCTAVE", "MODE", "CHORDS"};
   char valueStr[16];
 
   // Get current item's value
@@ -1759,6 +1771,9 @@ void drawArpSettingsScreen() {
       break;
     case 6: // Mode
       snprintf(valueStr, sizeof(valueStr), "%s", arpModeNames[state.arpMode]);
+      break;
+    case 7: // Play Chords
+      snprintf(valueStr, sizeof(valueStr), "%s", settings.arpPlayChords ? "ON" : "OFF");
       break;
   }
 
@@ -1788,16 +1803,16 @@ void drawArpSettingsScreen() {
     }
   }
 
-  // Page dots at bottom (shows which setting - 7 pages)
+  // Page dots at bottom (shows which setting - 8 pages)
   int dotY = 56;
-  int dotSpacing = 10;
-  int dotsStartX = 64 - (7 * dotSpacing / 2) + 5;
-  for (int i = 0; i < 7; i++) {
+  int dotSpacing = 9;
+  int dotsStartX = 64 - (8 * dotSpacing / 2) + 4;
+  for (int i = 0; i < 8; i++) {
     int x = dotsStartX + (i * dotSpacing);
     if (i == state.arpSettingsPage) {
-      display.fillCircle(x, dotY, 4, WHITE);
+      display.fillCircle(x, dotY, 3, WHITE);
     } else {
-      display.drawCircle(x, dotY, 3, WHITE);
+      display.drawCircle(x, dotY, 2, WHITE);
     }
   }
 }
