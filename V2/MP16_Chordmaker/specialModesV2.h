@@ -73,14 +73,14 @@ void updateStarfield(ScreensaverState& ss) {
 
     // Move outward from center (speed increases with distance)
     float dist = sqrt(star.x * star.x + star.y * star.y);
-    float speedMult = 1.0f + dist * 3.0f;  // Accelerate as they get further
+    float speedMult = 1.0f + dist * 2.0f;  // Slower acceleration
 
     if (dist > 0.001f) {
-      star.x += (star.x / dist) * star.speed * speedMult * 0.02f;
-      star.y += (star.y / dist) * star.speed * speedMult * 0.02f;
+      star.x += (star.x / dist) * star.speed * speedMult * 0.008f;  // Much slower
+      star.y += (star.y / dist) * star.speed * speedMult * 0.008f;
     } else {
       // Nudge stars at exact center
-      star.x += 0.01f;
+      star.x += 0.005f;
     }
 
     // Reset if off screen

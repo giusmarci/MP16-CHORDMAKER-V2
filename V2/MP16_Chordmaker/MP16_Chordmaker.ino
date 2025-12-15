@@ -2102,15 +2102,11 @@ void drawArpSettingsScreen() {
 
 void drawSpecialModeScreen() {
   if (state.inGenSettings) {
-    // Generative settings submenu
+    // Generative settings submenu - compact
     display.setTextSize(1);
-    display.setCursor(20, 4);
-    display.print("GENERATIVE SETTINGS");
-
-    // Setting label
     const char* label = (state.genSettingsPage == 0) ? "SPEED" : "TYPE";
     int labelLen = strlen(label);
-    display.setCursor(64 - (labelLen * 3), 16);
+    display.setCursor(64 - (labelLen * 3), 8);
     display.print(label);
 
     // Setting value - large
@@ -2119,25 +2115,15 @@ void drawSpecialModeScreen() {
     if (state.genSettingsPage == 0) {
       snprintf(valueStr, sizeof(valueStr), "%d%%", settings.genMutationRate);
     } else {
-      // Chord Hop = switches pads, Scale Morph = changes scale
       snprintf(valueStr, sizeof(valueStr), "%s", settings.genScaleMode ? "Chords" : "Scales");
     }
     int valLen = strlen(valueStr);
-    display.setCursor(64 - (valLen * 6), 30);
+    display.setCursor(64 - (valLen * 6), 24);
     display.print(valueStr);
-
-    // Description below value
-    display.setTextSize(1);
-    if (state.genSettingsPage == 1) {
-      const char* desc = settings.genScaleMode ? "Hop between pads" : "Morph scale types";
-      int descLen = strlen(desc);
-      display.setCursor(64 - (descLen * 3), 48);
-      display.print(desc);
-    }
 
     // Page dots
     display.setTextSize(1);
-    int dotY = 56;
+    int dotY = 52;
     for (int i = 0; i < 2; i++) {
       int x = 58 + (i * 12);
       if (i == state.genSettingsPage) {
