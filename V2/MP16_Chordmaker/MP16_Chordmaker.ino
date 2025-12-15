@@ -410,12 +410,12 @@ void checkKeys() {
 void processButtonPresses() {
   // Shift + Encoder Click = Toggle Preset Mode
   if (shiftState && encoderState && !previousEncoderState) {
-    // Stop any playing notes first
+    // Stop any playing notes first (use killAllNotes since chord structure changes)
     if (state.activePad >= 0) {
       if (state.arpRate > 0) {
         stopCurrentArpNote();
       }
-      stopChord(state.activePad);
+      killAllNotes();
       state.activePad = -1;
     }
 
@@ -491,8 +491,9 @@ void processButtonPresses() {
       if (state.activePad >= 0 && settings.maxNotesPerChord != oldMax) {
         if (state.arpRate > 0) {
           stopCurrentArpNote();
-        } else {
-          stopChord(state.activePad);
+        }
+        killAllNotes();  // Clear all notes when changing max
+        if (state.arpRate == 0) {
           playChord(state.activePad);
         }
       }
@@ -644,6 +645,15 @@ void processButtonPresses() {
         } else {
           state.currentPreset = (state.currentPreset + NUM_PRESET_BANKS - 1) % NUM_PRESET_BANKS;
         }
+
+        // Stop any playing notes before loading new preset (chord structure changes completely)
+        if (state.activePad >= 0) {
+          if (state.arpRate > 0) {
+            stopCurrentArpNote();
+          }
+          killAllNotes();  // Use killAllNotes since chord data is about to change
+        }
+
         loadPreset(state.currentPreset);
 
         // Resume playing if pad was held
@@ -668,7 +678,7 @@ void processButtonPresses() {
           if (state.arpRate > 0) {
             stopCurrentArpNote();
           }
-          stopChord(state.activePad);
+          killAllNotes();  // Use killAllNotes since chord structure changes
           loadScaleMode();
           if (state.arpRate == 0) {
             playChord(state.activePad);
