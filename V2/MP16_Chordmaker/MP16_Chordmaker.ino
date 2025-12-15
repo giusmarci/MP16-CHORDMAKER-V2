@@ -63,6 +63,7 @@ Adafruit_USBD_MIDI usb_midi;
 // Include V2 headers after struct definitions needed
 #include "musicTheoryV2.h"
 #include "presetV2.h"
+#include "specialModesV2.h"
 
 // Key state arrays
 bool shiftState = false;
@@ -123,6 +124,11 @@ struct SettingsV2 {
   int arpOctaveRange = 0;         // 0=none, 1=+1oct, 2=+2oct, 3=-1oct, 4=+/-1oct
   int maxNotesPerChord = 8;       // Max notes per chord (1-8, default 8)
   bool arpPlayChords = false;     // Play full chord alongside arp notes (default off)
+  // Generative mode settings
+  int genMutationRate = 50;       // 0-100 (0=slow, 100=fast)
+  bool genScaleMode = true;       // true=stay in scale, false=chromatic
+  // Screensaver settings
+  int screensaverTimeout = 30;    // Seconds before screensaver (0=off)
 };
 
 // Arp pattern names
@@ -159,7 +165,17 @@ struct RuntimeState {
   bool holdMode = false;          // HOLD mode - sustain notes after releasing pad
   bool inPresetMode = false;      // Preset mode (Shift+Encoder click to toggle)
   int currentPreset = 0;          // Current preset index (0 to NUM_PRESETS-1)
+  // Special modes
+  int specialMode = SPECIAL_MODE_NORMAL;  // 0=Normal, 1=Generative
+  bool inSpecialModeMenu = false; // Selecting special mode via button 11
+  bool inGenSettings = false;     // Editing generative settings
+  int genSettingsPage = 0;        // 0=Rate, 1=Scale/Chromatic
 };
+
+// Generative and Screensaver state (from specialModesV2.h)
+GenerativeState genState;
+ScreensaverState screensaver;
+unsigned long lastMutationFlash = 0;  // For LED flash on mutation
 
 // MIDI Clock state
 volatile bool midiClockReceived = false;    // Flag set by interrupt when clock pulse received
@@ -208,6 +224,9 @@ void setup() {
   // Seed random number generator for humanize/random patterns
   randomSeed(analogRead(A0) + micros());
 
+  // Initialize screensaver timer
+  screensaver.lastInputTime = millis();
+
   if (!LittleFS.begin()) {
     // LittleFS failed - continue anyway
   }
@@ -232,6 +251,8 @@ void loop() {
   updateMIDI();
   updateInternalClock();  // Generate internal clock when no external
   updateArpeggiator();
+  updateGenerativeMode(); // Mutate notes in generative mode
+  checkScreensaver();     // Check for idle timeout
   updateVisuals();
   updateDisplay();
 }
@@ -406,6 +427,21 @@ void checkKeys() {
 
   // Process button presses
   processButtonPresses();
+
+  // Check for any input activity to reset screensaver
+  bool anyInput = false;
+  if (encoderState != previousEncoderState) anyInput = true;
+  if (shiftState != previousShiftState) anyInput = true;
+  if (encoderValue != 0) anyInput = true;
+  for (int i = 0; i < 16; i++) {
+    if (keyStates[i] != previousKeyStates[i]) {
+      anyInput = true;
+      break;
+    }
+  }
+  if (anyInput) {
+    resetScreensaver();
+  }
 }
 
 void processButtonPresses() {
@@ -446,19 +482,63 @@ void processButtonPresses() {
     return;
   }
 
-  // Button 11 = Arp Settings toggle (click to open/close)
+  // Button 11 = Special Modes menu toggle (click to open/close)
   if (keyStates[11] && !previousKeyStates[11]) {
     if (state.inSettingsMode) {
-      // Close main settings first if open
       state.inSettingsMode = false;
     }
-    state.inArpSettings = !state.inArpSettings;
-    state.arpSettingsPage = 0;
-    state.arpSettingsEditing = false;  // Reset editing state
-    if (!state.inArpSettings) {
+    if (state.inArpSettings) {
+      state.inArpSettings = false;
+    }
+    state.inSpecialModeMenu = !state.inSpecialModeMenu;
+    if (!state.inSpecialModeMenu) {
       saveSettings();
     }
     return;
+  }
+
+  // Handle Special Mode menu - encoder cycles modes, click enters settings
+  if (state.inSpecialModeMenu) {
+    if (state.inGenSettings) {
+      // In Generative settings submenu
+      if (encoderState && !previousEncoderState) {
+        // Click cycles through settings pages, then exits
+        state.genSettingsPage++;
+        if (state.genSettingsPage > 1) {
+          state.genSettingsPage = 0;
+          state.inGenSettings = false;
+          saveSettings();
+        }
+      }
+      if (encoderValue != 0) {
+        if (state.genSettingsPage == 0) {
+          // Adjust mutation rate
+          settings.genMutationRate = constrain(settings.genMutationRate + (encoderValue > 0 ? 5 : -5), 0, 100);
+        } else {
+          // Toggle scale mode
+          settings.genScaleMode = !settings.genScaleMode;
+        }
+        encoderValue = 0;
+      }
+    } else {
+      // Mode selection
+      if (encoderState && !previousEncoderState) {
+        // Click on Generative enters settings, click on Normal just exits
+        if (state.specialMode == SPECIAL_MODE_GENERATIVE) {
+          state.inGenSettings = true;
+          state.genSettingsPage = 0;
+        }
+      }
+      if (encoderValue != 0) {
+        if (encoderValue > 0) {
+          state.specialMode = (state.specialMode + 1) % NUM_SPECIAL_MODES;
+        } else {
+          state.specialMode = (state.specialMode + NUM_SPECIAL_MODES - 1) % NUM_SPECIAL_MODES;
+        }
+        encoderValue = 0;
+      }
+    }
+    // Don't return - allow chord pads to still work
   }
 
   // Button 7 = HOLD toggle (sustain notes after releasing pad)
@@ -803,19 +883,39 @@ void processButtonPresses() {
   }
 
   // Handle arp buttons
-  if (keyStates[BTN_ARP_DOWN] && !previousKeyStates[BTN_ARP_DOWN]) {
-    // Stop current arp note before changing rate
-    stopCurrentArpNote();
-    state.arpRate = constrain(state.arpRate - 1, 0, 6);
-    if (state.arpRate == 0) {
-      state.arpNoteIndex = 0;
-      state.arpOctaveStep = 0;  // Reset octave cycling
+  // Shift + Arp+ = toggle Arp Settings menu
+  if (keyStates[BTN_ARP_UP] && !previousKeyStates[BTN_ARP_UP]) {
+    if (shiftState) {
+      // Shift + Arp+ = toggle arp settings
+      if (state.inSettingsMode) {
+        state.inSettingsMode = false;
+      }
+      if (state.inSpecialModeMenu) {
+        state.inSpecialModeMenu = false;
+      }
+      state.inArpSettings = !state.inArpSettings;
+      state.arpSettingsPage = 0;
+      state.arpSettingsEditing = false;
+      if (!state.inArpSettings) {
+        saveSettings();
+      }
+    } else {
+      // Normal Arp+ = increase arp rate
+      stopCurrentArpNote();
+      state.arpRate = constrain(state.arpRate + 1, 0, 6);
     }
   }
-  if (keyStates[BTN_ARP_UP] && !previousKeyStates[BTN_ARP_UP]) {
-    // Stop current arp note before changing rate
-    stopCurrentArpNote();
-    state.arpRate = constrain(state.arpRate + 1, 0, 6);
+
+  // Arp- button (no shift function)
+  if (keyStates[BTN_ARP_DOWN] && !previousKeyStates[BTN_ARP_DOWN]) {
+    if (!shiftState) {  // Only if not holding shift
+      stopCurrentArpNote();
+      state.arpRate = constrain(state.arpRate - 1, 0, 6);
+      if (state.arpRate == 0) {
+        state.arpNoteIndex = 0;
+        state.arpOctaveStep = 0;
+      }
+    }
   }
 
 }
@@ -1466,6 +1566,164 @@ void stopCurrentArpNote() {
   arpGateOpen = false;
 }
 
+//================================ GENERATIVE MODE ================================
+
+// Musical chord relationships for intelligent pad hopping
+// These are scale degree movements that sound good together
+const int musicalMoves[] = {
+  3, -3,  // Up/down a third (I -> iii, I -> vi)
+  4, -4,  // Up/down a fourth (I -> IV)
+  -1, 1,  // Step up/down (I -> ii, I -> vii)
+  2, -2,  // Up/down a second
+  5, -5   // Up/down a fifth (I -> V)
+};
+const int numMusicalMoves = 10;
+
+void updateGenerativeMode() {
+  // Only run if generative mode is active and a chord is playing
+  if (state.specialMode != SPECIAL_MODE_GENERATIVE) return;
+  if (state.activePad < 0) return;
+
+  unsigned long now = millis();
+
+  // Calculate interval based on mutation rate (0=slow 3000ms, 100=fast 200ms)
+  int interval = map(settings.genMutationRate, 0, 100, 3000, 200);
+
+  if (now - genState.lastMutationTime < (unsigned long)interval) return;
+  genState.lastMutationTime = now;
+
+  if (settings.genScaleMode) {
+    // SCALE MODE: Intelligent pad hopping - switch to related chords
+    // Pick a musically pleasing move
+    int moveIndex = random(0, numMusicalMoves);
+    int move = musicalMoves[moveIndex];
+
+    // Calculate new pad (wrap around 0-8)
+    int newPad = (state.activePad + move + 9) % 9;
+
+    // Small chance to stay on same pad (creates breathing room)
+    if (random(0, 10) < 2) return;  // 20% chance to skip
+
+    // Stop current chord
+    if (state.arpRate == 0) {
+      stopChord(state.activePad);
+    } else {
+      stopCurrentArpNote();
+    }
+
+    // Switch to new pad
+    int oldPad = state.activePad;
+    state.activePad = newPad;
+    padStates[oldPad] = false;
+    padStates[newPad] = true;
+
+    // Play new chord
+    if (state.arpRate == 0) {
+      playChord(newPad);
+    }
+    // Arp will pick up new pad automatically
+
+    // Reset arp state for smooth transition
+    state.arpNoteIndex = 0;
+    state.arpDirection = true;
+
+  } else {
+    // CHROMATIC MODE: Scale morphing - change scale type for new colors
+    // Pick a related scale that sounds good
+    int currentScale = settings.scaleType;
+    int newScale;
+
+    // Define scale relationships (modes that blend well)
+    // Group: Major family (0,2,4,5), Minor family (1,3,6,7), Exotic (others)
+    int majorFamily[] = {0, 2, 4, 5, 15};  // Major, Dorian, Lydian, Mixolydian, LydDom
+    int minorFamily[] = {1, 3, 6, 7, 8};   // Minor, Phrygian, Locrian, HarmMin, JazzMin
+    int exoticScales[] = {11, 14, 18, 19}; // Blues, PhrDom, DblHrm, HungMin
+
+    // Determine which family we're in and pick from that family
+    bool inMajor = (currentScale == 0 || currentScale == 2 || currentScale == 4 || currentScale == 5);
+    bool inMinor = (currentScale == 1 || currentScale == 3 || currentScale == 7 || currentScale == 8);
+
+    if (random(0, 10) < 7) {
+      // 70% stay in family
+      if (inMajor) {
+        newScale = majorFamily[random(0, 5)];
+      } else if (inMinor) {
+        newScale = minorFamily[random(0, 5)];
+      } else {
+        // In exotic, pick another exotic or go to minor
+        if (random(0, 2) == 0) {
+          newScale = exoticScales[random(0, 4)];
+        } else {
+          newScale = minorFamily[random(0, 5)];
+        }
+      }
+    } else {
+      // 30% jump to different family for surprise
+      if (inMajor) {
+        newScale = minorFamily[random(0, 5)];
+      } else {
+        newScale = majorFamily[random(0, 5)];
+      }
+    }
+
+    // Don't change if same scale
+    if (newScale == currentScale) return;
+
+    // Stop current notes
+    if (state.arpRate == 0) {
+      stopChord(state.activePad);
+    } else {
+      stopCurrentArpNote();
+    }
+
+    // Change scale
+    settings.scaleType = newScale;
+
+    // Regenerate chords with new scale
+    if (state.inPresetMode) {
+      loadPreset(state.currentPreset);
+    } else {
+      loadScaleMode();
+    }
+
+    // Replay the chord with new scale
+    if (state.arpRate == 0) {
+      playChord(state.activePad);
+    }
+  }
+
+  // Trigger LED flash
+  lastMutationFlash = millis();
+}
+
+//================================ SCREENSAVER ================================
+
+void checkScreensaver() {
+  if (settings.screensaverTimeout == 0) return;  // Disabled
+
+  unsigned long now = millis();
+  unsigned long timeout = (unsigned long)settings.screensaverTimeout * 1000UL;
+
+  if (!screensaver.active) {
+    // Check if should activate
+    if (now - screensaver.lastInputTime > timeout) {
+      screensaver.active = true;
+      if (!screensaver.initialized) {
+        initStarfield(screensaver);
+      }
+    }
+  }
+  // Deactivation happens in input handlers (checkKeys)
+}
+
+// Call this from any input handler to reset screensaver timer
+void resetScreensaver() {
+  screensaver.lastInputTime = millis();
+  if (screensaver.active) {
+    screensaver.active = false;
+  }
+}
+
 //================================ CHORD PLAYBACK ================================
 
 void playChord(int pad) {
@@ -1635,17 +1893,29 @@ void updateVisuals() {
   // Chord pad LEDs - map to physical button positions
   // Layout: buttons 0,1,2 (row0), 4,5,6 (row1), 8,9,10 (row2) are chord pads
   // Pixel index = button index + 1
+  bool mutationFlashActive = (millis() - lastMutationFlash < 80);  // 80ms flash
+
   for (int i = 0; i < 9; i++) {
     int btnIndex = CHORD_PAD_BUTTONS[i];
     int pixelIndex = btnIndex + 1;
     uint32_t color;
 
     if (padStates[i] || (state.activePad == i && state.arpRate > 0)) {
-      // Playing - full brightness white
-      color = COLOR_PLAYING;
+      // Playing - check for mutation flash
+      if (state.activePad == i && mutationFlashActive && state.specialMode == SPECIAL_MODE_GENERATIVE) {
+        // Mutation flash - bright cyan burst
+        color = 0x00FFFF;
+      } else {
+        // Normal playing - full brightness white
+        color = COLOR_PLAYING;
+      }
     } else if (state.activePad == i && state.holdMode) {
       // Held note - show pad color at medium brightness
-      color = dimColor(padColors[i], 0.5);
+      if (mutationFlashActive && state.specialMode == SPECIAL_MODE_GENERATIVE) {
+        color = 0x00FFFF;  // Mutation flash
+      } else {
+        color = dimColor(padColors[i], 0.5);
+      }
     } else {
       // Idle - very dim
       color = dimColor(padColors[i], IDLE_DIM);
@@ -1671,12 +1941,16 @@ void updateVisuals() {
     pixels.setPixelColor(8, dimColor(0xFF00FF, IDLE_CONTROL_DIM));  // Very dim magenta
   }
 
-  // Button 11 = arp settings toggle (CYAN - medium blink when active)
-  if (state.inArpSettings) {
+  // Button 11 = special modes toggle (CYAN - shows mode status)
+  if (state.inSpecialModeMenu) {
     float blink = ((millis() / 200) % 2) ? 1.0 : 0.4;
-    pixels.setPixelColor(12, dimColor(0x00FFFF, blink));  // Cyan hard blink
+    pixels.setPixelColor(12, dimColor(0x00FFFF, blink));  // Cyan hard blink when selecting
+  } else if (state.specialMode == SPECIAL_MODE_GENERATIVE) {
+    // Generative mode active - pulsing cyan
+    float pulse = 0.3 + 0.7 * (sin(millis() / 300.0) * 0.5 + 0.5);
+    pixels.setPixelColor(12, dimColor(0x00FF80, pulse));  // Green-cyan pulse
   } else {
-    pixels.setPixelColor(12, dimColor(0x00FFFF, IDLE_CONTROL_DIM));  // Very dim cyan
+    pixels.setPixelColor(12, dimColor(0x00FFFF, IDLE_CONTROL_DIM));  // Very dim cyan when normal
   }
 
   // Bottom row controls
@@ -1727,6 +2001,13 @@ uint32_t dimColor(uint32_t color, float factor) {
 //================================ DISPLAY ================================
 
 void updateDisplay() {
+  // Check for screensaver first
+  if (screensaver.active) {
+    updateStarfield(screensaver);
+    drawStarfield(display, screensaver);
+    return;  // Skip normal display update
+  }
+
   display.clearDisplay();
 
   if (state.inSettingsMode) {
@@ -1735,6 +2016,8 @@ void updateDisplay() {
     drawArpSettingsScreen();
   } else if (state.inMaxNotesMenu) {
     drawMaxNotesScreen();
+  } else if (state.inSpecialModeMenu) {
+    drawSpecialModeScreen();
   } else {
     drawMainScreen();
   }
@@ -1813,6 +2096,81 @@ void drawArpSettingsScreen() {
       display.fillCircle(x, dotY, 3, WHITE);
     } else {
       display.drawCircle(x, dotY, 2, WHITE);
+    }
+  }
+}
+
+void drawSpecialModeScreen() {
+  if (state.inGenSettings) {
+    // Generative settings submenu
+    display.setTextSize(1);
+    display.setCursor(20, 4);
+    display.print("GENERATIVE SETTINGS");
+
+    // Setting label
+    const char* label = (state.genSettingsPage == 0) ? "SPEED" : "TYPE";
+    int labelLen = strlen(label);
+    display.setCursor(64 - (labelLen * 3), 16);
+    display.print(label);
+
+    // Setting value - large
+    display.setTextSize(2);
+    char valueStr[16];
+    if (state.genSettingsPage == 0) {
+      snprintf(valueStr, sizeof(valueStr), "%d%%", settings.genMutationRate);
+    } else {
+      // Chord Hop = switches pads, Scale Morph = changes scale
+      snprintf(valueStr, sizeof(valueStr), "%s", settings.genScaleMode ? "Chords" : "Scales");
+    }
+    int valLen = strlen(valueStr);
+    display.setCursor(64 - (valLen * 6), 30);
+    display.print(valueStr);
+
+    // Description below value
+    display.setTextSize(1);
+    if (state.genSettingsPage == 1) {
+      const char* desc = settings.genScaleMode ? "Hop between pads" : "Morph scale types";
+      int descLen = strlen(desc);
+      display.setCursor(64 - (descLen * 3), 48);
+      display.print(desc);
+    }
+
+    // Page dots
+    display.setTextSize(1);
+    int dotY = 56;
+    for (int i = 0; i < 2; i++) {
+      int x = 58 + (i * 12);
+      if (i == state.genSettingsPage) {
+        display.fillCircle(x, dotY, 3, WHITE);
+      } else {
+        display.drawCircle(x, dotY, 2, WHITE);
+      }
+    }
+  } else {
+    // Mode selection
+    display.setTextSize(1);
+    display.setCursor(30, 4);
+    display.print("SPECIAL MODE");
+
+    // Current mode name - large
+    display.setTextSize(2);
+    const char* modeName = specialModeNames[state.specialMode];
+    int nameLen = strlen(modeName);
+    int nameX = 64 - (nameLen * 6);
+    display.setCursor(nameX, 28);
+    display.print(modeName);
+
+    // Mode dots at bottom
+    int dotY = 56;
+    int dotSpacing = 15;
+    int dotsStartX = 64 - (NUM_SPECIAL_MODES * dotSpacing / 2) + 7;
+    for (int i = 0; i < NUM_SPECIAL_MODES; i++) {
+      int x = dotsStartX + (i * dotSpacing);
+      if (i == state.specialMode) {
+        display.fillCircle(x, dotY, 3, WHITE);
+      } else {
+        display.drawCircle(x, dotY, 2, WHITE);
+      }
     }
   }
 }
@@ -2035,7 +2393,7 @@ void drawMainScreen() {
     // Draw piano keyboard with active/inactive notes
     drawPianoKeyboardWithDimmed(chordRoot, activeNotes, numActive, inactiveNotes, numInactive);
 
-    // Bottom bar: hold + arp indicator + octave
+    // Bottom bar: hold + arp + gen indicator + octave
     display.setTextSize(1);
     display.setCursor(0, 56);
     if (state.holdMode) {
@@ -2044,6 +2402,10 @@ void drawMainScreen() {
     if (state.arpRate > 0) {
       display.print("ARP ");
       display.print(arpRateNames[state.arpRate]);
+      display.print(" ");
+    }
+    if (state.specialMode == SPECIAL_MODE_GENERATIVE) {
+      display.print("GEN");
     }
 
     // Octave indicator on right
