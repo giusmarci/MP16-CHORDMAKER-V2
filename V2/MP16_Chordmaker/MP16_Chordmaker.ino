@@ -133,6 +133,7 @@ struct SettingsV2 {
   int screensaverTimeout = 30;    // Seconds before screensaver (0=off)
   // Glide mode settings
   int glideTime = 64;             // Portamento time 0-127 (default: medium)
+  int glideType = 0;              // 0=CC Portamento, 1=Pitch Bend
   // Voice mode
   bool polyMode = false;          // false=MONO (one chord at a time), true=POLY (layer chords)
 };
@@ -177,6 +178,7 @@ struct RuntimeState {
   bool inGenSettings = false;     // Editing generative settings
   int genSettingsPage = 0;        // 0=Rate, 1=Scale/Chromatic
   bool inGlideSettings = false;   // Editing glide settings
+  int glideSettingsPage = 0;      // 0=Time, 1=Type (CC/PitchBend)
   unsigned long channelFlashTime = 0;  // When channel was changed (for display flash)
 };
 
@@ -538,15 +540,32 @@ void processButtonPresses() {
         encoderValue = 0;
       }
     } else if (state.inGlideSettings) {
-      // In Glide settings submenu - just glide time
+      // In Glide settings submenu - Time and Type pages
       if (encoderState && !previousEncoderState) {
-        // Click exits
-        state.inGlideSettings = false;
-        saveSettings();
+        // Click cycles through settings pages, then exits
+        state.glideSettingsPage++;
+        if (state.glideSettingsPage > 1) {
+          state.glideSettingsPage = 0;
+          state.inGlideSettings = false;
+          // Re-initialize glide mode with new settings
+          if (state.specialMode == SPECIAL_MODE_GLIDE) {
+            initGlideMode();
+          }
+          saveSettings();
+        }
       }
       if (encoderValue != 0) {
-        // Adjust glide time (0-127)
-        settings.glideTime = constrain(settings.glideTime + (encoderValue > 0 ? 5 : -5), 0, 127);
+        if (state.glideSettingsPage == 0) {
+          // Adjust glide time (0-127)
+          settings.glideTime = constrain(settings.glideTime + (encoderValue > 0 ? 5 : -5), 0, 127);
+          // If in CC mode and glide is active, update portamento time
+          if (settings.glideType == 0 && state.specialMode == SPECIAL_MODE_GLIDE) {
+            sendPortamentoToAllChannels(true, settings.glideTime);
+          }
+        } else {
+          // Toggle glide type (0=CC, 1=PitchBend)
+          settings.glideType = (settings.glideType + 1) % 2;
+        }
         encoderValue = 0;
       }
     } else {
@@ -558,6 +577,7 @@ void processButtonPresses() {
           state.genSettingsPage = 0;
         } else if (state.specialMode == SPECIAL_MODE_GLIDE) {
           state.inGlideSettings = true;
+          state.glideSettingsPage = 0;
         }
       }
       if (encoderValue != 0) {
@@ -2121,6 +2141,37 @@ void sendControlChange(int cc, int value, int channel) {
   Serial1.write(value);
 }
 
+//================================ CC PORTAMENTO ================================
+
+void sendPortamentoOn(int channel) {
+  sendControlChange(65, 127, channel);  // CC65: Portamento ON
+}
+
+void sendPortamentoOff(int channel) {
+  sendControlChange(65, 0, channel);    // CC65: Portamento OFF
+}
+
+void sendPortamentoTime(int time, int channel) {
+  sendControlChange(5, time, channel);  // CC5: Portamento Time (0-127)
+}
+
+void sendPortamentoToAllChannels(bool on, int time) {
+  int channels[] = {
+    settings.midiOutputAChannel,
+    settings.midiOutputBChannel,
+    settings.midiOutputCChannel,
+    settings.midiOutputDChannel
+  };
+  for (int i = 0; i < 4; i++) {
+    if (on) {
+      sendPortamentoOn(channels[i]);
+      sendPortamentoTime(time, channels[i]);
+    } else {
+      sendPortamentoOff(channels[i]);
+    }
+  }
+}
+
 // Pitch bend: 14-bit value (0-16383), center=8192
 void sendPitchBend(int value, int channel) {
   if (channel < 0 || channel > 15) return;
@@ -2155,17 +2206,23 @@ void sendPitchBendToAllChannels(int value) {
   sendPitchBend(value, settings.midiOutputDChannel);
 }
 
-// Initialize glide mode - set pitch bend range on all channels
+// Initialize glide mode - setup CC portamento or pitch bend depending on type
 void initGlideMode() {
-  int channels[] = {
-    settings.midiOutputAChannel,
-    settings.midiOutputBChannel,
-    settings.midiOutputCChannel,
-    settings.midiOutputDChannel
-  };
-  for (int i = 0; i < 4; i++) {
-    setPitchBendRange(GLIDE_PITCH_BEND_RANGE, channels[i]);
-    sendPitchBend(GLIDE_PITCH_BEND_CENTER, channels[i]);
+  if (settings.glideType == 0) {
+    // CC Portamento mode - send portamento ON to all channels
+    sendPortamentoToAllChannels(true, settings.glideTime);
+  } else {
+    // Pitch Bend mode - set pitch bend range on all channels
+    int channels[] = {
+      settings.midiOutputAChannel,
+      settings.midiOutputBChannel,
+      settings.midiOutputCChannel,
+      settings.midiOutputDChannel
+    };
+    for (int i = 0; i < 4; i++) {
+      setPitchBendRange(GLIDE_PITCH_BEND_RANGE, channels[i]);
+      sendPitchBend(GLIDE_PITCH_BEND_CENTER, channels[i]);
+    }
   }
   glideState.lastRootNote = -1;
   glideState.lastPad = -1;
@@ -2174,9 +2231,15 @@ void initGlideMode() {
   glideState.active = false;
 }
 
-// Reset pitch bend when leaving glide mode
+// Reset when leaving glide mode - turn off portamento or reset pitch bend
 void exitGlideMode() {
-  sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+  if (settings.glideType == 0) {
+    // CC Portamento mode - turn off portamento
+    sendPortamentoToAllChannels(false, 0);
+  } else {
+    // Pitch Bend mode - reset pitch bend to center
+    sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+  }
   // Stop any pending overlap chord
   if (glideState.oldPadToStop >= 0) {
     stopChord(glideState.oldPadToStop);
@@ -2211,26 +2274,34 @@ void startGlideForPad(int newPad) {
     return;
   }
 
-  // Remember old pad to stop when glide completes (creates overlap/blend)
+  // Remember old pad to stop after new chord plays (creates legato overlap)
   glideState.oldPadToStop = glideState.lastPad;
 
-  // Calculate semitone difference between chord roots
-  int semitones = glideState.lastRootNote - newRoot;
+  if (settings.glideType == 0) {
+    // CC Portamento mode - synth handles glide, we just need legato overlap
+    // Set active to trigger oldPadToStop cleanup after short overlap delay
+    glideState.startTime = millis();
+    glideState.active = true;
+  } else {
+    // Pitch Bend mode - we animate the glide ourselves
+    // Calculate semitone difference between chord roots
+    int semitones = glideState.lastRootNote - newRoot;
 
-  // Clamp to pitch bend range
-  semitones = constrain(semitones, -GLIDE_PITCH_BEND_RANGE, GLIDE_PITCH_BEND_RANGE);
+    // Clamp to pitch bend range
+    semitones = constrain(semitones, -GLIDE_PITCH_BEND_RANGE, GLIDE_PITCH_BEND_RANGE);
 
-  // Convert to pitch bend value
-  int bendPerSemitone = 8192 / GLIDE_PITCH_BEND_RANGE;
-  int startBendOffset = semitones * bendPerSemitone;
+    // Convert to pitch bend value
+    int bendPerSemitone = 8192 / GLIDE_PITCH_BEND_RANGE;
+    int startBendOffset = semitones * bendPerSemitone;
 
-  glideState.startBend = GLIDE_PITCH_BEND_CENTER + startBendOffset;
-  glideState.targetBend = GLIDE_PITCH_BEND_CENTER;
-  glideState.startTime = millis();
-  glideState.active = true;
+    glideState.startBend = GLIDE_PITCH_BEND_CENTER + startBendOffset;
+    glideState.targetBend = GLIDE_PITCH_BEND_CENTER;
+    glideState.startTime = millis();
+    glideState.active = true;
 
-  // Send initial pitch bend to ALL channels (whole chord bends together)
-  sendPitchBendToAllChannels(glideState.startBend);
+    // Send initial pitch bend to ALL channels (whole chord bends together)
+    sendPitchBendToAllChannels(glideState.startBend);
+  }
 
   // Update state
   glideState.lastRootNote = newRoot;
@@ -2247,6 +2318,14 @@ void startGlideForArpNote(int newNote, int channel) {
     return;
   }
 
+  if (settings.glideType == 0) {
+    // CC Portamento mode - synth handles glide automatically
+    // Just track state, portamento CC is already enabled
+    glideState.lastArpNote = newNote;
+    return;
+  }
+
+  // Pitch Bend mode - we animate the glide ourselves
   // Calculate semitone difference
   int semitones = glideState.lastArpNote - newNote;
   semitones = constrain(semitones, -GLIDE_PITCH_BEND_RANGE, GLIDE_PITCH_BEND_RANGE);
@@ -2270,8 +2349,10 @@ void startGlideForArpNote(int newNote, int channel) {
 void updateGlide() {
   if (!glideState.active) return;
   if (state.specialMode != SPECIAL_MODE_GLIDE) {
-    // Exiting glide mode - reset pitch bend and cleanup
-    sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+    // Exiting glide mode - cleanup based on mode type
+    if (settings.glideType == 1) {
+      sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+    }
     if (glideState.oldPadToStop >= 0) {
       stopChord(glideState.oldPadToStop);
       glideState.oldPadToStop = -1;
@@ -2280,9 +2361,23 @@ void updateGlide() {
     return;
   }
 
-  // Calculate glide duration from settings (0-127 -> 20ms to 800ms)
-  unsigned long glideDuration = map(settings.glideTime, 0, 127, 20, 800);
   unsigned long elapsed = millis() - glideState.startTime;
+
+  if (settings.glideType == 0) {
+    // CC Portamento mode - synth handles glide, we just manage legato overlap
+    // Stop old chord after short delay (20ms) to ensure notes overlap for legato trigger
+    if (elapsed >= 20) {
+      if (glideState.oldPadToStop >= 0) {
+        stopChord(glideState.oldPadToStop);
+        glideState.oldPadToStop = -1;
+      }
+      glideState.active = false;
+    }
+    return;
+  }
+
+  // Pitch Bend mode - animate the glide ourselves
+  unsigned long glideDuration = map(settings.glideTime, 0, 127, 20, 800);
 
   if (elapsed >= glideDuration) {
     // Glide complete
@@ -2603,28 +2698,54 @@ void drawSpecialModeScreen() {
       }
     }
   } else if (state.inGlideSettings) {
-    // Glide settings - just glide time
+    // Glide settings submenu - Time and Type pages
     display.setTextSize(1);
-    display.setCursor(40, 8);
-    display.print("GLIDE TIME");
+    const char* label = (state.glideSettingsPage == 0) ? "TIME" : "TYPE";
+    int labelLen = strlen(label);
+    display.setCursor(64 - (labelLen * 3), 8);
+    display.print(label);
 
+    // Setting value - large
     display.setTextSize(2);
-    char valueStr[8];
-    snprintf(valueStr, sizeof(valueStr), "%d", settings.glideTime);
+    char valueStr[16];
+    if (state.glideSettingsPage == 0) {
+      snprintf(valueStr, sizeof(valueStr), "%d", settings.glideTime);
+    } else {
+      snprintf(valueStr, sizeof(valueStr), "%s", settings.glideType == 0 ? "CC" : "BEND");
+    }
     int valLen = strlen(valueStr);
     display.setCursor(64 - (valLen * 6), 24);
     display.print(valueStr);
 
-    // Visual bar
-    int barWidth = map(settings.glideTime, 0, 127, 0, 100);
-    display.drawRect(14, 48, 100, 8, WHITE);
-    display.fillRect(14, 48, barWidth, 8, WHITE);
+    if (state.glideSettingsPage == 0) {
+      // Visual bar for time
+      int barWidth = map(settings.glideTime, 0, 127, 0, 100);
+      display.drawRect(14, 48, 100, 8, WHITE);
+      display.fillRect(14, 48, barWidth, 8, WHITE);
+      display.setTextSize(1);
+      display.setCursor(2, 50);
+      display.print("F");
+      display.setCursor(118, 50);
+      display.print("S");
+    } else {
+      // Description for type
+      display.setTextSize(1);
+      const char* desc = settings.glideType == 0 ? "CC Portamento" : "Pitch Bend";
+      int descLen = strlen(desc);
+      display.setCursor(64 - (descLen * 3), 48);
+      display.print(desc);
+    }
 
-    display.setTextSize(1);
-    display.setCursor(2, 50);
-    display.print("F");
-    display.setCursor(118, 50);
-    display.print("S");
+    // Page dots at bottom
+    int dotY = 60;
+    for (int i = 0; i < 2; i++) {
+      int x = 58 + (i * 12);
+      if (i == state.glideSettingsPage) {
+        display.fillCircle(x, dotY, 3, WHITE);
+      } else {
+        display.drawCircle(x, dotY, 2, WHITE);
+      }
+    }
   } else {
     // Mode selection
     display.setTextSize(1);
