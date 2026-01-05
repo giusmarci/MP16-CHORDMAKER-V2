@@ -7,19 +7,21 @@
 // Mode definitions
 #define SPECIAL_MODE_NORMAL     0
 #define SPECIAL_MODE_GENERATIVE 1
-// Future: SPECIAL_MODE_SEQUENCE 2
+#define SPECIAL_MODE_GLIDE      2
 
-#define NUM_SPECIAL_MODES 2
+#define NUM_SPECIAL_MODES 3
 
 const char* specialModeNames[NUM_SPECIAL_MODES] = {
   "Normal",
-  "Generative"
+  "Generative",
+  "Glide"
 };
 
 // Short names for display indicator
 const char* specialModeShort[NUM_SPECIAL_MODES] = {
   "",      // Normal shows nothing
-  "GEN"    // Generative shows GEN
+  "GEN",   // Generative shows GEN
+  "GLI"    // Glide shows GLI
 };
 
 //================================ GENERATIVE MODE ================================
@@ -28,6 +30,26 @@ const char* specialModeShort[NUM_SPECIAL_MODES] = {
 struct GenerativeState {
   unsigned long lastMutationTime = 0;
   bool active = false;  // Is generative mode currently running
+};
+
+//================================ GLIDE MODE ================================
+// Pitch-bend based portamento - works with any synth
+// Glides from previous note to new note using pitch bend
+
+#define GLIDE_PITCH_BEND_CENTER 8192   // Center position (no bend)
+#define GLIDE_PITCH_BEND_RANGE  12     // Semitones (±12 = full octave)
+
+struct GlideState {
+  bool active = false;              // Is a glide currently in progress
+  unsigned long startTime = 0;      // When glide started
+  int startBend = 8192;             // Starting pitch bend value
+  int targetBend = 8192;            // Target pitch bend (usually center)
+  // For chord mode
+  int lastRootNote = -1;            // Last chord's root note
+  int lastPad = -1;                 // Last pad played
+  int oldPadToStop = -1;            // Old pad to stop when glide completes (for overlap)
+  // For arp mode (note-by-note glide)
+  int lastArpNote = -1;             // Last arp note played (for mono-style glide)
 };
 
 //================================ SCREENSAVER ================================

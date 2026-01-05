@@ -131,6 +131,8 @@ struct SettingsV2 {
   bool genScaleMode = true;       // true=stay in scale, false=chromatic
   // Screensaver settings
   int screensaverTimeout = 30;    // Seconds before screensaver (0=off)
+  // Glide mode settings
+  int glideTime = 64;             // Portamento time 0-127 (default: medium)
 };
 
 // Arp pattern names
@@ -168,14 +170,16 @@ struct RuntimeState {
   bool inPresetMode = false;      // Preset mode (Shift+Encoder click to toggle)
   int currentPreset = 0;          // Current preset index (0 to NUM_PRESETS-1)
   // Special modes
-  int specialMode = SPECIAL_MODE_NORMAL;  // 0=Normal, 1=Generative
+  int specialMode = SPECIAL_MODE_NORMAL;  // 0=Normal, 1=Generative, 2=Glide
   bool inSpecialModeMenu = false; // Selecting special mode via button 11
   bool inGenSettings = false;     // Editing generative settings
   int genSettingsPage = 0;        // 0=Rate, 1=Scale/Chromatic
+  bool inGlideSettings = false;   // Editing glide settings
 };
 
-// Generative and Screensaver state (from specialModesV2.h)
+// Generative, Glide, and Screensaver state (from specialModesV2.h)
 GenerativeState genState;
+GlideState glideState;
 ScreensaverState screensaver;
 unsigned long lastMutationFlash = 0;  // For LED flash on mutation
 
@@ -254,6 +258,7 @@ void loop() {
   updateInternalClock();  // Generate internal clock when no external
   updateArpeggiator();
   updateGenerativeMode(); // Mutate notes in generative mode
+  updateGlide();          // Animate pitch bend glide
   checkScreensaver();     // Check for idle timeout
   updateVisuals();
   updateDisplay();
@@ -316,10 +321,10 @@ void updateIntroAnimation() {
   if (elapsed < 800) {
     int scanLine = map(elapsed, 0, 800, 0, 64);
 
-    // Draw pixelated "MP16" text
-    display.setTextSize(4);
-    display.setCursor(16, 8);
-    display.print("MP16");
+    // Draw pixelated "Dechorder" text
+    display.setTextSize(2);
+    display.setCursor(10, 16);
+    display.print("Dechorder");
 
     // Scanline mask effect
     for (int y = scanLine; y < 64; y++) {
@@ -336,24 +341,19 @@ void updateIntroAnimation() {
   }
   // Phase 2: Glitch effect (800-1200ms)
   else if (elapsed < 1200) {
-    display.setTextSize(4);
+    display.setTextSize(2);
 
     // Glitch offset
     int glitchX = random(-2, 3);
     int glitchY = random(-1, 2);
 
-    display.setCursor(16 + glitchX, 8 + glitchY);
-    display.print("MP16");
+    display.setCursor(10 + glitchX, 16 + glitchY);
+    display.print("Dechorder");
 
     // Random pixel noise
     for (int i = 0; i < 20; i++) {
       display.drawPixel(random(128), random(64), WHITE);
     }
-
-    // V2 appears
-    display.setTextSize(2);
-    display.setCursor(48, 48);
-    display.print("V2");
 
     // LEDs flash
     pixels.clear();
@@ -366,18 +366,14 @@ void updateIntroAnimation() {
   }
   // Phase 3: Stable with pulse (1200-2200ms)
   else if (elapsed < 2200) {
-    display.setTextSize(4);
-    display.setCursor(16, 8);
-    display.print("MP16");
+    display.setTextSize(2);
+    display.setCursor(10, 16);
+    display.print("Dechorder");
 
     // Underline animation
-    int lineWidth = map(elapsed - 1200, 0, 300, 0, 96);
-    lineWidth = min(lineWidth, 96);
-    display.drawFastHLine(16, 42, lineWidth, WHITE);
-
-    display.setTextSize(2);
-    display.setCursor(48, 48);
-    display.print("V2");
+    int lineWidth = map(elapsed - 1200, 0, 300, 0, 108);
+    lineWidth = min(lineWidth, 108);
+    display.drawFastHLine(10, 34, lineWidth, WHITE);
 
     // LEDs breathe
     float pulse = (sin((elapsed - 1200) * 0.006) + 1) * 0.5;
@@ -531,20 +527,43 @@ void processButtonPresses() {
         }
         encoderValue = 0;
       }
+    } else if (state.inGlideSettings) {
+      // In Glide settings submenu
+      if (encoderState && !previousEncoderState) {
+        // Click exits glide settings
+        state.inGlideSettings = false;
+        saveSettings();
+      }
+      if (encoderValue != 0) {
+        // Adjust glide time (0-127) - used by pitch bend animation
+        settings.glideTime = constrain(settings.glideTime + (encoderValue > 0 ? 5 : -5), 0, 127);
+        encoderValue = 0;
+      }
     } else {
       // Mode selection
       if (encoderState && !previousEncoderState) {
-        // Click on Generative enters settings, click on Normal just exits
+        // Click on mode enters settings (if available)
         if (state.specialMode == SPECIAL_MODE_GENERATIVE) {
           state.inGenSettings = true;
           state.genSettingsPage = 0;
+        } else if (state.specialMode == SPECIAL_MODE_GLIDE) {
+          state.inGlideSettings = true;
         }
       }
       if (encoderValue != 0) {
+        int oldMode = state.specialMode;
         if (encoderValue > 0) {
           state.specialMode = (state.specialMode + 1) % NUM_SPECIAL_MODES;
         } else {
           state.specialMode = (state.specialMode + NUM_SPECIAL_MODES - 1) % NUM_SPECIAL_MODES;
+        }
+        // Handle glide mode enable/disable
+        if (oldMode == SPECIAL_MODE_GLIDE && state.specialMode != SPECIAL_MODE_GLIDE) {
+          // Leaving glide mode
+          exitGlideMode();
+        } else if (oldMode != SPECIAL_MODE_GLIDE && state.specialMode == SPECIAL_MODE_GLIDE) {
+          // Entering glide mode
+          initGlideMode();
         }
         encoderValue = 0;
       }
@@ -863,8 +882,10 @@ void processButtonPresses() {
         if (state.arpRate > 0) {
           stopCurrentArpNote();
         }
-        // Stop held chord if switching pads
-        stopChord(state.activePad);
+        // Stop held chord if switching pads (unless glide mode - glide handles overlap)
+        if (state.specialMode != SPECIAL_MODE_GLIDE) {
+          stopChord(state.activePad);
+        }
       }
       // Play chord
       padStates[i] = true;
@@ -1098,8 +1119,10 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
             if (state.arpRate > 0) {
               stopCurrentArpNote();
             }
-            // Stop held chord if switching pads
-            stopChord(state.activePad);
+            // Stop held chord if switching pads (unless glide mode - glide handles overlap)
+            if (state.specialMode != SPECIAL_MODE_GLIDE) {
+              stopChord(state.activePad);
+            }
           }
           padStates[i] = true;
           state.activePad = i;
@@ -1545,13 +1568,18 @@ void playArpNote(int pad, int noteIndex) {
   int velocity = constrain(baseVelocity, 1, 127);
 
   int channel = chord.channel[noteIndex];
-  sendNoteOn(note, velocity, getOutputChannel(channel));
+  int outputChannel = getOutputChannel(channel);
+
+  // Arp glide: note-by-note like a mono synth
+  startGlideForArpNote(note, outputChannel);
+
+  sendNoteOn(note, velocity, outputChannel);
 
   // Track what's playing so we can stop it later (store actual MIDI note!)
   lastArpPad = pad;
   lastArpNoteIndex = noteIndex;
   lastArpNoteMidi = note;  // Store the actual note with octave shift applied
-  lastArpNoteChannel = getOutputChannel(channel);
+  lastArpNoteChannel = outputChannel;
   arpNotePlaying = true;
 }
 
@@ -1628,9 +1656,11 @@ void updateGenerativeMode() {
     padStates[oldPad] = false;
     padStates[newPad] = true;
 
-    // Play new chord
+    // Play new chord (or trigger glide for arp)
     if (state.arpRate == 0) {
-      playChord(newPad);
+      playChord(newPad);  // This triggers glide
+    } else {
+      startGlideForPad(newPad);  // Trigger glide for arp mode
     }
     // Arp will pick up new pad automatically
 
@@ -1738,6 +1768,9 @@ void resetScreensaver() {
 //================================ CHORD PLAYBACK ================================
 
 void playChord(int pad) {
+  // Start glide BEFORE playing notes (bends whole chord together)
+  startGlideForPad(pad);
+
   ChordV2& chord = pads[pad].chord;
 
   int notesPlayed = 0;
@@ -1871,6 +1904,192 @@ void sendNoteOff(int note, int velocity, int channel) {
   Serial1.write(velocity);
 }
 
+void sendControlChange(int cc, int value, int channel) {
+  if (channel < 0 || channel > 15) return;
+  uint8_t status = 0xB0 | channel;  // CC status byte
+  uint8_t usb_packet[] = {status, (uint8_t)cc, (uint8_t)value};
+  usb_midi.write(usb_packet, 3);
+  Serial1.write(status);
+  Serial1.write(cc);
+  Serial1.write(value);
+}
+
+// Pitch bend: 14-bit value (0-16383), center=8192
+void sendPitchBend(int value, int channel) {
+  if (channel < 0 || channel > 15) return;
+  value = constrain(value, 0, 16383);
+  uint8_t lsb = value & 0x7F;         // Lower 7 bits
+  uint8_t msb = (value >> 7) & 0x7F;  // Upper 7 bits
+  uint8_t status = 0xE0 | channel;    // Pitch bend status
+  uint8_t usb_packet[] = {status, lsb, msb};
+  usb_midi.write(usb_packet, 3);
+  Serial1.write(status);
+  Serial1.write(lsb);
+  Serial1.write(msb);
+}
+
+// Set pitch bend range via RPN (in semitones)
+void setPitchBendRange(int semitones, int channel) {
+  // RPN MSB = 0, LSB = 0 selects pitch bend range
+  sendControlChange(101, 0, channel);  // RPN MSB
+  sendControlChange(100, 0, channel);  // RPN LSB
+  sendControlChange(6, semitones, channel);  // Data Entry MSB (semitones)
+  sendControlChange(38, 0, channel);   // Data Entry LSB (cents)
+  // Reset RPN to null
+  sendControlChange(101, 127, channel);
+  sendControlChange(100, 127, channel);
+}
+
+// Send pitch bend to all output channels
+void sendPitchBendToAllChannels(int value) {
+  sendPitchBend(value, settings.midiOutputAChannel);
+  sendPitchBend(value, settings.midiOutputBChannel);
+  sendPitchBend(value, settings.midiOutputCChannel);
+  sendPitchBend(value, settings.midiOutputDChannel);
+}
+
+// Initialize glide mode - set pitch bend range on all channels
+void initGlideMode() {
+  int channels[] = {
+    settings.midiOutputAChannel,
+    settings.midiOutputBChannel,
+    settings.midiOutputCChannel,
+    settings.midiOutputDChannel
+  };
+  for (int i = 0; i < 4; i++) {
+    setPitchBendRange(GLIDE_PITCH_BEND_RANGE, channels[i]);
+    sendPitchBend(GLIDE_PITCH_BEND_CENTER, channels[i]);
+  }
+  glideState.lastRootNote = -1;
+  glideState.lastPad = -1;
+  glideState.lastArpNote = -1;
+  glideState.oldPadToStop = -1;
+  glideState.active = false;
+}
+
+// Reset pitch bend when leaving glide mode
+void exitGlideMode() {
+  sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+  // Stop any pending overlap chord
+  if (glideState.oldPadToStop >= 0) {
+    stopChord(glideState.oldPadToStop);
+  }
+  glideState.active = false;
+  glideState.lastRootNote = -1;
+  glideState.lastPad = -1;
+  glideState.lastArpNote = -1;
+  glideState.oldPadToStop = -1;
+}
+
+// Get root note for a pad (lowest note of chord with octave)
+int getPadRootNote(int pad) {
+  if (pad < 0 || pad >= 9) return -1;
+  ChordV2& chord = pads[pad].chord;
+  return settings.rootNote + chord.rootOffset + (state.currentOctave * 12);
+}
+
+// Start a glide from previous chord to new chord (call BEFORE playing notes)
+// Returns the old pad that should be stopped AFTER glide (for overlap blend)
+void startGlideForPad(int newPad) {
+  if (state.specialMode != SPECIAL_MODE_GLIDE) return;
+
+  int newRoot = getPadRootNote(newPad);
+
+  if (glideState.lastRootNote < 0 || glideState.lastPad == newPad) {
+    // No previous chord or same pad - no glide, just update state
+    glideState.lastRootNote = newRoot;
+    glideState.lastPad = newPad;
+    glideState.oldPadToStop = -1;
+    return;
+  }
+
+  // Remember old pad to stop when glide completes (creates overlap/blend)
+  glideState.oldPadToStop = glideState.lastPad;
+
+  // Calculate semitone difference between chord roots
+  int semitones = glideState.lastRootNote - newRoot;
+
+  // Clamp to pitch bend range
+  semitones = constrain(semitones, -GLIDE_PITCH_BEND_RANGE, GLIDE_PITCH_BEND_RANGE);
+
+  // Convert to pitch bend value
+  int bendPerSemitone = 8192 / GLIDE_PITCH_BEND_RANGE;
+  int startBendOffset = semitones * bendPerSemitone;
+
+  glideState.startBend = GLIDE_PITCH_BEND_CENTER + startBendOffset;
+  glideState.targetBend = GLIDE_PITCH_BEND_CENTER;
+  glideState.startTime = millis();
+  glideState.active = true;
+
+  // Send initial pitch bend to ALL channels (whole chord bends together)
+  sendPitchBendToAllChannels(glideState.startBend);
+
+  // Update state
+  glideState.lastRootNote = newRoot;
+  glideState.lastPad = newPad;
+}
+
+// Start a glide for arpeggiator (note-by-note, mono synth style)
+void startGlideForArpNote(int newNote, int channel) {
+  if (state.specialMode != SPECIAL_MODE_GLIDE) return;
+
+  if (glideState.lastArpNote < 0 || glideState.lastArpNote == newNote) {
+    // No previous note or same note - no glide
+    glideState.lastArpNote = newNote;
+    return;
+  }
+
+  // Calculate semitone difference
+  int semitones = glideState.lastArpNote - newNote;
+  semitones = constrain(semitones, -GLIDE_PITCH_BEND_RANGE, GLIDE_PITCH_BEND_RANGE);
+
+  int bendPerSemitone = 8192 / GLIDE_PITCH_BEND_RANGE;
+  int startBendOffset = semitones * bendPerSemitone;
+
+  glideState.startBend = GLIDE_PITCH_BEND_CENTER + startBendOffset;
+  glideState.targetBend = GLIDE_PITCH_BEND_CENTER;
+  glideState.startTime = millis();
+  glideState.active = true;
+  glideState.oldPadToStop = -1;  // Arp handles its own note stopping
+
+  // Send initial pitch bend
+  sendPitchBendToAllChannels(glideState.startBend);
+
+  glideState.lastArpNote = newNote;
+}
+
+// Update glide animation - call from main loop
+void updateGlide() {
+  if (!glideState.active) return;
+  if (state.specialMode != SPECIAL_MODE_GLIDE) {
+    glideState.active = false;
+    return;
+  }
+
+  // Calculate glide duration from settings (0-127 -> 20ms to 800ms)
+  unsigned long glideDuration = map(settings.glideTime, 0, 127, 20, 800);
+  unsigned long elapsed = millis() - glideState.startTime;
+
+  if (elapsed >= glideDuration) {
+    // Glide complete
+    sendPitchBendToAllChannels(glideState.targetBend);
+    glideState.active = false;
+
+    // Stop old chord now (after glide - creates overlap blend)
+    if (glideState.oldPadToStop >= 0) {
+      stopChord(glideState.oldPadToStop);
+      glideState.oldPadToStop = -1;
+    }
+  } else {
+    // Interpolate pitch bend with smooth curve
+    float progress = (float)elapsed / (float)glideDuration;
+    // S-curve for more musical feel
+    progress = progress * progress * (3.0f - 2.0f * progress);
+    int currentBend = glideState.startBend + (int)((glideState.targetBend - glideState.startBend) * progress);
+    sendPitchBendToAllChannels(currentBend);
+  }
+}
+
 void killAllNotes() {
   for (int i = 0; i < 128; i++) {
     if (noteCountA[i] > 0) sendNoteOff(i, 0, settings.midiOutputAChannel);
@@ -1882,6 +2101,12 @@ void killAllNotes() {
     if (noteCountD[i] > 0) sendNoteOff(i, 0, settings.midiOutputDChannel);
     noteCountD[i] = 0;
   }
+  // Reset glide state so next chord/note starts fresh
+  glideState.lastRootNote = -1;
+  glideState.lastPad = -1;
+  glideState.lastArpNote = -1;
+  glideState.oldPadToStop = -1;
+  glideState.active = false;
 }
 
 //================================ VISUALS ================================
@@ -1957,9 +2182,13 @@ void updateVisuals() {
     float blink = ((millis() / 200) % 2) ? 1.0 : 0.4;
     pixels.setPixelColor(12, dimColor(0x00FFFF, blink));  // Cyan hard blink when selecting
   } else if (state.specialMode == SPECIAL_MODE_GENERATIVE) {
-    // Generative mode active - pulsing cyan
+    // Generative mode active - pulsing green-cyan
     float pulse = 0.3 + 0.7 * (sin(millis() / 300.0) * 0.5 + 0.5);
     pixels.setPixelColor(12, dimColor(0x00FF80, pulse));  // Green-cyan pulse
+  } else if (state.specialMode == SPECIAL_MODE_GLIDE) {
+    // Glide mode active - pulsing yellow/gold
+    float pulse = 0.3 + 0.7 * (sin(millis() / 400.0) * 0.5 + 0.5);
+    pixels.setPixelColor(12, dimColor(0xFFAA00, pulse));  // Gold/yellow pulse
   } else {
     pixels.setPixelColor(12, dimColor(0x00FFFF, IDLE_CONTROL_DIM));  // Very dim cyan when normal
   }
@@ -2143,6 +2372,31 @@ void drawSpecialModeScreen() {
         display.drawCircle(x, dotY, 2, WHITE);
       }
     }
+  } else if (state.inGlideSettings) {
+    // Glide settings submenu - adjust portamento time
+    display.setTextSize(1);
+    display.setCursor(40, 8);
+    display.print("GLIDE TIME");
+
+    // Value as bar + number
+    display.setTextSize(2);
+    char valueStr[8];
+    snprintf(valueStr, sizeof(valueStr), "%d", settings.glideTime);
+    int valLen = strlen(valueStr);
+    display.setCursor(64 - (valLen * 6), 24);
+    display.print(valueStr);
+
+    // Visual bar showing glide time
+    int barWidth = map(settings.glideTime, 0, 127, 0, 100);
+    display.drawRect(14, 48, 100, 8, WHITE);
+    display.fillRect(14, 48, barWidth, 8, WHITE);
+
+    // Labels
+    display.setTextSize(1);
+    display.setCursor(2, 50);
+    display.print("F");  // Fast
+    display.setCursor(118, 50);
+    display.print("S");  // Slow
   } else {
     // Mode selection
     display.setTextSize(1);
