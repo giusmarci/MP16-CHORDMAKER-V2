@@ -177,6 +177,7 @@ struct RuntimeState {
   bool inGenSettings = false;     // Editing generative settings
   int genSettingsPage = 0;        // 0=Rate, 1=Scale/Chromatic
   bool inGlideSettings = false;   // Editing glide settings
+  unsigned long channelFlashTime = 0;  // When channel was changed (for display flash)
 };
 
 // Generative, Glide, and Screensaver state (from specialModesV2.h)
@@ -858,37 +859,33 @@ void processButtonPresses() {
     int btnIndex = CHORD_PAD_BUTTONS[i];
 
     if (keyStates[btnIndex] && !previousKeyStates[btnIndex]) {
-      // SHIFT + PAD = Change root note (transpose)
-      // Pads 0-8 = semitone offsets from a base (C of current octave)
-      // This lets you quickly jump between keys while jamming
-      // NOTE: Disabled in preset mode (songs have fixed keys)
-      if (shiftState && !state.inPresetMode) {
-        // Base is C of the current root's octave
-        int baseNote = (settings.rootNote / 12) * 12;  // Round down to C
-        int newRoot = baseNote + i;  // Pad 0 = C, Pad 1 = C#, ... Pad 8 = G#
-        newRoot = constrain(newRoot, 24, 96);  // Keep in reasonable range
+      // SHIFT + PAD = Change MIDI output channel
+      // Pad 0 = Ch 16, Pad 1 = Ch 15, ... Pad 8 = Ch 8
+      if (shiftState) {
+        int newChannel = 15 - i;  // 0-indexed: 15=Ch16, 14=Ch15, ... 7=Ch8
 
-        // If currently playing, transpose live
+        // Stop any playing notes on old channel first
         if (state.activePad >= 0) {
-          int oldRoot = settings.rootNote;
-          // Stop arp note first
           if (state.arpRate > 0) {
             stopCurrentArpNote();
           }
-          // Stop current chord with old root
-          settings.rootNote = oldRoot;
           stopChord(state.activePad);
-          settings.rootNote = newRoot;
-          // Regenerate chords with new root
-          loadScaleMode();
-          // Play chord with new root (arp will pick up)
-          if (state.arpRate == 0) {
-            playChord(state.activePad);
-          }
-        } else {
-          settings.rootNote = newRoot;
-          loadScaleMode();
         }
+
+        // Set all output channels to the new channel
+        settings.midiOutputAChannel = newChannel;
+        settings.midiOutputBChannel = newChannel;
+        settings.midiOutputCChannel = newChannel;
+        settings.midiOutputDChannel = newChannel;
+
+        // Flash to indicate channel change
+        state.channelFlashTime = millis();
+
+        // Resume playing on new channel if pad was held
+        if (state.activePad >= 0 && state.arpRate == 0) {
+          playChord(state.activePad);
+        }
+
         saveSettings();
         continue;  // Don't trigger chord play
       }
@@ -2890,12 +2887,24 @@ void drawMainScreen() {
       display.print("GEN");
     }
 
-    // Octave indicator on right
-    display.setCursor(100, 56);
+    // Right side: octave and channel
+    display.setCursor(85, 56);
     if (state.currentOctave != 0) {
-      display.print("Oct");
       if (state.currentOctave > 0) display.print("+");
       display.print(state.currentOctave);
+      display.print(" ");
+    }
+    // Channel (flash when changed)
+    bool channelFlash = (millis() - state.channelFlashTime) < 1000;
+    if (channelFlash) {
+      int chX = display.getCursorX();
+      display.fillRect(chX, 54, 28, 10, WHITE);
+      display.setTextColor(BLACK);
+    }
+    display.print("CH");
+    display.print(settings.midiOutputAChannel + 1);
+    if (channelFlash) {
+      display.setTextColor(WHITE);
     }
 
   } else {
@@ -2963,10 +2972,18 @@ void drawMainScreen() {
       display.print(arpRateNames[state.arpRate]);
     }
 
-    // Right: channel
-    display.setCursor(105, 56);
+    // Right: channel (flash inverted when recently changed)
+    bool channelFlash = (millis() - state.channelFlashTime) < 1000;
+    if (channelFlash) {
+      display.fillRect(100, 54, 28, 10, WHITE);
+      display.setTextColor(BLACK);
+    }
+    display.setCursor(102, 56);
     display.print("CH");
     display.print(settings.midiOutputAChannel + 1);
+    if (channelFlash) {
+      display.setTextColor(WHITE);
+    }
   }
 }
 
