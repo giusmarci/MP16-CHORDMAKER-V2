@@ -133,6 +133,8 @@ struct SettingsV2 {
   int screensaverTimeout = 30;    // Seconds before screensaver (0=off)
   // Glide mode settings
   int glideTime = 64;             // Portamento time 0-127 (default: medium)
+  // Voice mode
+  bool polyMode = false;          // false=MONO (one chord at a time), true=POLY (layer chords)
 };
 
 // Arp pattern names
@@ -166,7 +168,7 @@ struct RuntimeState {
   bool inMaxNotesMenu = false;    // Max notes menu (toggle with Shift+7)
   int settingsPage = 0;           // Settings menu item index
   int arpSettingsPage = 0;        // Arp settings page: 0=Pattern, 1=Gate, 2=Swing, 3=Humanize, 4=Velocity, 5=Octave, 6=Mode, 7=Chords
-  bool holdMode = false;          // HOLD mode - sustain notes after releasing pad
+  bool latchMode = false;         // LATCH mode - sustain notes after releasing pad
   bool inPresetMode = false;      // Preset mode (Shift+Encoder click to toggle)
   int currentPreset = 0;          // Current preset index (0 to NUM_PRESETS-1)
   // Special modes
@@ -528,14 +530,14 @@ void processButtonPresses() {
         encoderValue = 0;
       }
     } else if (state.inGlideSettings) {
-      // In Glide settings submenu
+      // In Glide settings submenu - just glide time
       if (encoderState && !previousEncoderState) {
-        // Click exits glide settings
+        // Click exits
         state.inGlideSettings = false;
         saveSettings();
       }
       if (encoderValue != 0) {
-        // Adjust glide time (0-127) - used by pitch bend animation
+        // Adjust glide time (0-127)
         settings.glideTime = constrain(settings.glideTime + (encoderValue > 0 ? 5 : -5), 0, 127);
         encoderValue = 0;
       }
@@ -571,17 +573,17 @@ void processButtonPresses() {
     // Don't return - allow chord pads to still work
   }
 
-  // Button 7 = HOLD toggle (sustain notes after releasing pad)
+  // Button 7 = LATCH toggle (sustain notes after releasing pad)
   // Shift + Button 7 = Max Notes menu
   if (keyStates[7] && !previousKeyStates[7]) {
     if (shiftState) {
       // Shift + 7 = toggle Max Notes menu
       state.inMaxNotesMenu = !state.inMaxNotesMenu;
     } else {
-      // Just 7 = toggle HOLD mode
-      state.holdMode = !state.holdMode;
-      // If turning off hold, stop ALL notes immediately
-      if (!state.holdMode) {
+      // Just 7 = toggle LATCH mode
+      state.latchMode = !state.latchMode;
+      // If turning off latch, stop ALL notes immediately
+      if (!state.latchMode) {
         stopCurrentArpNote();
         killAllNotes();
         state.activePad = -1;
@@ -681,8 +683,8 @@ void processButtonPresses() {
   }
 
   // Handle main settings mode - 8-bit game style vertical menu
-  // Items: 0=Channel, 1=BPM, 2=Clock Sync
-  #define NUM_SETTINGS_ITEMS 3
+  // Items: 0=Channel, 1=BPM, 2=Clock Sync, 3=Voice Mode
+  #define NUM_SETTINGS_ITEMS 4
   if (state.inSettingsMode) {
 
     if (state.settingsEditing) {
@@ -714,6 +716,9 @@ void processButtonPresses() {
             break;
           case 2:  // Clock Sync ON/OFF
             settings.midiClockSync = !settings.midiClockSync;
+            break;
+          case 3:  // Voice Mode MONO/POLY
+            settings.polyMode = !settings.polyMode;
             break;
         }
         encoderValue = 0;
@@ -877,8 +882,9 @@ void processButtonPresses() {
       }
 
       // Normal press - play chord
-      // Stop any currently playing notes before switching pads
-      if (state.activePad >= 0 && state.activePad != i) {
+      // In MONO mode: stop previous chord before playing new one
+      // In POLY mode: let multiple chords play together
+      if (!settings.polyMode && state.activePad >= 0 && state.activePad != i) {
         if (state.arpRate > 0) {
           stopCurrentArpNote();
         }
@@ -889,7 +895,7 @@ void processButtonPresses() {
       }
       // Play chord
       padStates[i] = true;
-      state.activePad = i;
+      state.activePad = i;  // Track most recent pad (for arp, display, etc.)
       // Reset arp state when switching pads
       state.arpNoteIndex = 0;
       state.arpDirection = true;
@@ -1075,8 +1081,8 @@ void updateMIDI() {
       }
     } else if (!padStates[i] && previousPadStates[i]) {
       // Pad released
-      if (!state.holdMode) {
-        // HOLD off: stop notes when released
+      if (!state.latchMode) {
+        // LATCH off: stop notes when released
         // Only stop if this pad is still active OR no pad is active
         // If another pad is active, the switching logic already stopped this chord
         if (state.activePad == i || state.activePad == -1) {
@@ -1095,7 +1101,7 @@ void updateMIDI() {
           }
         }
       }
-      // HOLD mode: keep notes/arp playing, activePad stays set
+      // LATCH mode: keep notes/arp playing, activePad stays set
     }
   }
 }
@@ -1114,8 +1120,9 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
       // Note On - find matching pad
       for (int i = 0; i < 9; i++) {
         if (data1 == pads[i].triggerNote) {
-          // Stop any currently playing notes before switching pads
-          if (state.activePad >= 0 && state.activePad != i) {
+          // In MONO mode: stop previous chord before playing new one
+          // In POLY mode: let multiple chords play together
+          if (!settings.polyMode && state.activePad >= 0 && state.activePad != i) {
             if (state.arpRate > 0) {
               stopCurrentArpNote();
             }
@@ -1989,9 +1996,10 @@ int getPadRootNote(int pad) {
 }
 
 // Start a glide from previous chord to new chord (call BEFORE playing notes)
-// Returns the old pad that should be stopped AFTER glide (for overlap blend)
+// Only works in MONO mode (POLY can't glide between chords - which one to glide from?)
 void startGlideForPad(int newPad) {
   if (state.specialMode != SPECIAL_MODE_GLIDE) return;
+  if (settings.polyMode) return;  // No chord glide in poly mode
 
   int newRoot = getPadRootNote(newPad);
 
@@ -2062,6 +2070,12 @@ void startGlideForArpNote(int newNote, int channel) {
 void updateGlide() {
   if (!glideState.active) return;
   if (state.specialMode != SPECIAL_MODE_GLIDE) {
+    // Exiting glide mode - reset pitch bend and cleanup
+    sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+    if (glideState.oldPadToStop >= 0) {
+      stopChord(glideState.oldPadToStop);
+      glideState.oldPadToStop = -1;
+    }
     glideState.active = false;
     return;
   }
@@ -2091,6 +2105,9 @@ void updateGlide() {
 }
 
 void killAllNotes() {
+  // Reset pitch bend first
+  sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+
   for (int i = 0; i < 128; i++) {
     if (noteCountA[i] > 0) sendNoteOff(i, 0, settings.midiOutputAChannel);
     noteCountA[i] = 0;
@@ -2145,8 +2162,8 @@ void updateVisuals() {
         // Normal playing - full brightness white
         color = COLOR_PLAYING;
       }
-    } else if (state.activePad == i && state.holdMode) {
-      // Held note - show pad color at medium brightness
+    } else if (state.activePad == i && state.latchMode) {
+      // Latched note - show pad color at medium brightness
       if (mutationFlashActive && state.specialMode == SPECIAL_MODE_GENERATIVE) {
         color = 0x00FFFF;  // Mutation flash
       } else {
@@ -2169,8 +2186,8 @@ void updateVisuals() {
     pixels.setPixelColor(4, dimColor(0xFFFF00, IDLE_CONTROL_DIM));  // Very dim yellow
   }
 
-  // Button 7 = HOLD toggle (MAGENTA - fastest blink when active)
-  if (state.holdMode) {
+  // Button 7 = LATCH toggle (MAGENTA - fastest blink when active)
+  if (state.latchMode) {
     float blink = ((millis() / 100) % 2) ? 1.0 : 0.5;
     pixels.setPixelColor(8, dimColor(0xFF00FF, blink));  // Magenta hard blink
   } else {
@@ -2373,12 +2390,11 @@ void drawSpecialModeScreen() {
       }
     }
   } else if (state.inGlideSettings) {
-    // Glide settings submenu - adjust portamento time
+    // Glide settings - just glide time
     display.setTextSize(1);
     display.setCursor(40, 8);
     display.print("GLIDE TIME");
 
-    // Value as bar + number
     display.setTextSize(2);
     char valueStr[8];
     snprintf(valueStr, sizeof(valueStr), "%d", settings.glideTime);
@@ -2386,17 +2402,16 @@ void drawSpecialModeScreen() {
     display.setCursor(64 - (valLen * 6), 24);
     display.print(valueStr);
 
-    // Visual bar showing glide time
+    // Visual bar
     int barWidth = map(settings.glideTime, 0, 127, 0, 100);
     display.drawRect(14, 48, 100, 8, WHITE);
     display.fillRect(14, 48, barWidth, 8, WHITE);
 
-    // Labels
     display.setTextSize(1);
     display.setCursor(2, 50);
-    display.print("F");  // Fast
+    display.print("F");
     display.setCursor(118, 50);
-    display.print("S");  // Slow
+    display.print("S");
   } else {
     // Mode selection
     display.setTextSize(1);
@@ -2644,11 +2659,11 @@ void drawMainScreen() {
     // Draw piano keyboard with active/inactive notes
     drawPianoKeyboardWithDimmed(chordRoot, activeNotes, numActive, inactiveNotes, numInactive);
 
-    // Bottom bar: hold + arp + gen indicator + octave
+    // Bottom bar: latch + arp + gen indicator + octave
     display.setTextSize(1);
     display.setCursor(0, 56);
-    if (state.holdMode) {
-      display.print("HLD ");
+    if (state.latchMode) {
+      display.print("LCH ");
     }
     if (state.arpRate > 0) {
       display.print("ARP ");
@@ -2719,10 +2734,10 @@ void drawMainScreen() {
       display.print("0");
     }
 
-    // Center-left: HOLD indicator
-    if (state.holdMode) {
+    // Center-left: LATCH indicator
+    if (state.latchMode) {
       display.setCursor(25, 56);
-      display.print("HLD");
+      display.print("LCH");
     }
 
     // Center: arp rate (if active)
@@ -2741,10 +2756,10 @@ void drawMainScreen() {
 
 void drawSettingsScreen() {
   // Single-item marquee style settings menu
-  // Items: Channel, BPM, Clock Sync
+  // Items: Channel, BPM, Clock Sync, Voice Mode
   // Scroll to change item, click to edit value, click to exit edit
 
-  const char* menuItems[3] = {"CHANNEL", "BPM", "SYNC"};
+  const char* menuItems[4] = {"CHANNEL", "BPM", "SYNC", "VOICE"};
   char valueStr[16];
 
   // Get current item's value
@@ -2761,6 +2776,9 @@ void drawSettingsScreen() {
       break;
     case 2:  // Clock Sync
       snprintf(valueStr, sizeof(valueStr), "%s", settings.midiClockSync ? "ON" : "OFF");
+      break;
+    case 3:  // Voice Mode
+      snprintf(valueStr, sizeof(valueStr), "%s", settings.polyMode ? "POLY" : "MONO");
       break;
   }
 
@@ -2790,11 +2808,11 @@ void drawSettingsScreen() {
     }
   }
 
-  // Page dots at bottom (shows which setting)
+  // Page dots at bottom (shows which setting - 4 items)
   int dotY = 56;
   int dotSpacing = 12;
-  int dotsStartX = 64 - (3 * dotSpacing / 2) + 6;
-  for (int i = 0; i < 3; i++) {
+  int dotsStartX = 64 - (4 * dotSpacing / 2) + 6;
+  for (int i = 0; i < 4; i++) {
     int x = dotsStartX + (i * dotSpacing);
     if (i == state.settingsPage) {
       display.fillCircle(x, dotY, 4, WHITE);

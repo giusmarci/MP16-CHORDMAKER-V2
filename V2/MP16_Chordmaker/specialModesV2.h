@@ -50,6 +50,8 @@ struct GlideState {
   int oldPadToStop = -1;            // Old pad to stop when glide completes (for overlap)
   // For arp mode (note-by-note glide)
   int lastArpNote = -1;             // Last arp note played (for mono-style glide)
+  // Settings page (0=Time, 1=Mono/Poly)
+  int settingsPage = 0;
 };
 
 //================================ SCREENSAVER ================================
