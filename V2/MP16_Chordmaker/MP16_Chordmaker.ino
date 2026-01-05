@@ -2050,7 +2050,7 @@ void checkScreensaver() {
     if (now - screensaver.lastInputTime > timeout) {
       screensaver.active = true;
       if (!screensaver.initialized) {
-        initStarfield(screensaver);
+        initScreensaver(screensaver);
       }
     }
   }
@@ -2783,8 +2783,8 @@ uint32_t dimColor(uint32_t color, float factor) {
 void updateDisplay() {
   // Check for screensaver first
   if (screensaver.active) {
-    updateStarfield(screensaver);
-    drawStarfield(display, screensaver);
+    updateScreensaver(screensaver);
+    drawScreensaver(display, screensaver);
     return;  // Skip normal display update
   }
 

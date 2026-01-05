@@ -60,85 +60,94 @@ struct GlideState {
 };
 
 //================================ SCREENSAVER ================================
-// Starfield animation when idle
+// "Cyber Rain" - Matrix-style digital rain animation
 
-#define SCREENSAVER_NUM_STARS 20
+#define MATRIX_COLS 16      // 128px / 8px spacing
+#define MATRIX_COL_SPACING 8
 
-struct Star {
-  float x;       // Position from center (-1 to 1)
-  float y;       // Position from center (-1 to 1)
-  float speed;   // Movement speed multiplier
+struct MatrixCol {
+  float y;       // Current Y position of the "head"
+  float speed;   // Fall speed
+  int len;       // Length of the tail
+  int type;      // 0=Standard, 1=Fast/Glitch
 };
 
 struct ScreensaverState {
   bool active = false;
   unsigned long lastInputTime = 0;
-  Star stars[SCREENSAVER_NUM_STARS];
+  MatrixCol cols[MATRIX_COLS];
   bool initialized = false;
 };
 
-// Initialize starfield
-void initStarfield(ScreensaverState& ss) {
-  for (int i = 0; i < SCREENSAVER_NUM_STARS; i++) {
-    // Random position near center
-    ss.stars[i].x = ((float)random(-100, 100)) / 1000.0f;
-    ss.stars[i].y = ((float)random(-100, 100)) / 1000.0f;
-    ss.stars[i].speed = 0.5f + ((float)random(0, 100)) / 100.0f;
+// Initialize Cyber Rain
+void initScreensaver(ScreensaverState& ss) {
+  for (int i = 0; i < MATRIX_COLS; i++) {
+    // Randomize start positions (some off-screen to stagger)
+    ss.cols[i].y = random(-100, 0); 
+    ss.cols[i].speed = random(5, 25) / 10.0f; // 0.5 to 2.5
+    ss.cols[i].len = random(4, 25);
+    ss.cols[i].type = (random(0, 10) > 8) ? 1 : 0; // 10% chance of glitch column
   }
   ss.initialized = true;
 }
 
-// Reset a star to center
-void resetStar(Star& star) {
-  star.x = ((float)random(-50, 50)) / 1000.0f;
-  star.y = ((float)random(-50, 50)) / 1000.0f;
-  star.speed = 0.5f + ((float)random(0, 100)) / 100.0f;
-}
-
-// Update starfield positions
-void updateStarfield(ScreensaverState& ss) {
-  for (int i = 0; i < SCREENSAVER_NUM_STARS; i++) {
-    Star& star = ss.stars[i];
-
-    // Move outward from center (speed increases with distance)
-    float dist = sqrt(star.x * star.x + star.y * star.y);
-    float speedMult = 1.0f + dist * 2.0f;  // Slower acceleration
-
-    if (dist > 0.001f) {
-      star.x += (star.x / dist) * star.speed * speedMult * 0.008f;  // Much slower
-      star.y += (star.y / dist) * star.speed * speedMult * 0.008f;
-    } else {
-      // Nudge stars at exact center
-      star.x += 0.005f;
+// Update Cyber Rain positions
+void updateScreensaver(ScreensaverState& ss) {
+  for (int i = 0; i < MATRIX_COLS; i++) {
+    MatrixCol& col = ss.cols[i];
+    
+    // Move down
+    col.y += col.speed;
+    
+    // Glitch effect: sometimes speed up randomly
+    if (col.type == 1 && random(0, 20) == 0) {
+      col.y += 2.0;
     }
 
-    // Reset if off screen
-    if (abs(star.x) > 1.2f || abs(star.y) > 1.2f) {
-      resetStar(star);
+    // Reset when tail leaves screen
+    if (col.y - col.len > 64) {
+      col.y = random(-50, -5);
+      col.speed = random(5, 30) / 10.0f;
+      col.len = random(4, 30);
+      col.type = (random(0, 10) > 8) ? 1 : 0;
     }
   }
 }
 
-// Draw starfield on display (pass display reference)
-// Screen coords: 0,0 to 127,63, center at 64,32
-void drawStarfield(Adafruit_SSD1306& display, ScreensaverState& ss) {
+// Draw Cyber Rain on display
+void drawScreensaver(Adafruit_SSD1306& display, ScreensaverState& ss) {
   display.clearDisplay();
 
-  for (int i = 0; i < SCREENSAVER_NUM_STARS; i++) {
-    Star& star = ss.stars[i];
+  for (int i = 0; i < MATRIX_COLS; i++) {
+    MatrixCol& col = ss.cols[i];
+    int x = i * MATRIX_COL_SPACING + 2; // Center in column
+    int headY = (int)col.y;
+    
+    // Don't draw if completely off screen
+    if (headY - col.len > 64 || headY < 0) continue;
 
-    // Convert -1..1 to screen coords
-    int screenX = 64 + (int)(star.x * 64);
-    int screenY = 32 + (int)(star.y * 32);
-
-    // Only draw if on screen
-    if (screenX >= 0 && screenX < 128 && screenY >= 0 && screenY < 64) {
-      // Size based on distance from center (further = bigger)
-      float dist = sqrt(star.x * star.x + star.y * star.y);
-      if (dist > 0.5f) {
-        display.fillRect(screenX, screenY, 2, 2, WHITE);
-      } else {
-        display.drawPixel(screenX, screenY, WHITE);
+    // Draw Drop
+    for (int j = 0; j < col.len; j++) {
+      int pixelY = headY - j;
+      if (pixelY >= 0 && pixelY < 64) {
+        // Head is solid
+        if (j == 0) {
+          display.drawPixel(x, pixelY, WHITE);
+          display.drawPixel(x+1, pixelY, WHITE); // Thicker head
+        }
+        // Tail is dithered (skip pixels to simulate fade)
+        else if (j < col.len / 3) {
+          // Solid top part of tail
+          display.drawPixel(x, pixelY, WHITE);
+        }
+        else if (j < col.len * 2 / 3) {
+          // 50% dither
+          if (pixelY % 2 == 0) display.drawPixel(x, pixelY, WHITE);
+        }
+        else {
+          // 25% dither (sparse tail)
+          if (pixelY % 4 == 0) display.drawPixel(x, pixelY, WHITE);
+        }
       }
     }
   }
