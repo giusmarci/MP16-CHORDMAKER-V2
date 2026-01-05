@@ -47,7 +47,8 @@ struct GlideState {
   // For chord mode
   int lastRootNote = -1;            // Target root note (what we're bending towards)
   int lastPad = -1;                 // Target pad (what we're bending towards)
-  int sourcePad = -1;               // Source pad (the one with actual notes playing)
+  int sourcePad = -1;               // Pad that "owns" the notes for release purposes
+  int noteSourcePad = -1;           // Pad whose actual MIDI notes are sounding (for stopChord)
   int oldPadToStop = -1;            // Old pad to stop when glide completes (for overlap)
   // For arp mode (note-by-note glide)
   int lastArpNote = -1;             // Last arp note played (for mono-style glide)
