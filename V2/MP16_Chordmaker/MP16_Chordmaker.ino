@@ -330,16 +330,6 @@ void initHardware() {
 
 //================================ INTRO ANIMATION ================================
 
-const char* bootMessages[] = {
-  "> SYSTEM INIT...",
-  "> CHECKING MEMORY",
-  "> LOADING PRESETS",
-  "> SYNCING OSC",
-  "> CALIBRATING...",
-  "> AUDIO ENGINE ON",
-  "> READY."
-};
-
 void playIntroAnimation() {
   animPhase = 0;
   animStartTime = millis();
@@ -349,45 +339,18 @@ void updateIntroAnimation() {
   unsigned long elapsed = millis() - animStartTime;
   display.clearDisplay();
 
-  // Phase 1: Terminal Boot (0-1500ms)
-  if (elapsed < 1500) {
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
-    
-    // Calculate how many lines to show based on time
-    int linesToShow = map(elapsed, 0, 1500, 1, 7);
-    
-    for(int i = 0; i < linesToShow; i++) {
-      display.setCursor(0, i * 9); // 9 pixels per line spacing
-      display.print(bootMessages[i]);
-    }
-    
-    // LEDs: Random data crunching effect
-    if ((elapsed / 50) % 2 == 0) { // Update every 50ms
-      pixels.clear();
-      // Light up 3 random pixels each frame
-      for(int k=0; k<3; k++) {
-        int rPix = random(0, NUM_PIXELS);
-        // Tech green/amber colors
-        uint32_t color = (random(0,2) == 0) ? 0x00FF00 : 0xFFAA00; 
-        pixels.setPixelColor(rPix, dimColor(color, 0.5));
-      }
-      pixels.show();
-    }
-  }
-  // Phase 2: The Decode (1500-2800ms)
-  else if (elapsed < 2800) {
+  // Phase 1: The Decode (0-2200ms) - Slower decryption
+  if (elapsed < 2200) {
     // "Matrix" decoding effect for the title
     const char* finalTitle = "CHORDMAKER";
     char displayStr[11];
     strcpy(displayStr, finalTitle);
     
     // Determine how many letters are "locked in"
-    int lockedChars = map(elapsed, 1500, 2800, 0, 10);
+    int lockedChars = map(elapsed, 0, 2200, 0, 10);
     
     // Randomize the rest
     for(int i = lockedChars; i < 10; i++) {
-      // Use random ASCII chars between 33 (!) and 126 (~)
       displayStr[i] = (char)random(33, 91); 
     }
     
@@ -397,27 +360,25 @@ void updateIntroAnimation() {
     display.print(displayStr);
     
     // Draw a loading bar below
-    int barWidth = map(elapsed, 1500, 2800, 0, 120);
+    int barWidth = map(elapsed, 0, 2200, 0, 120);
     display.drawRect(4, 45, 120, 6, WHITE);
     display.fillRect(4, 45, barWidth, 6, WHITE);
 
-    // LEDs: Scanner effect (Knight Rider / Cylon)
+    // LEDs: Scanner effect (Knight Rider / Cylon) - Slower sweep
     pixels.clear();
-    int scannerPos = map(elapsed, 1500, 2800, 0, 32); // 0-16 and back
-    int pixelTarget = scannerPos;
-    if (pixelTarget > 16) pixelTarget = 32 - pixelTarget; // Bounce back
+    int scannerPos = map(elapsed, 0, 2200, 0, 48); // Sweeps back and forth multiple times
+    int pixelTarget = scannerPos % 32; 
+    if (pixelTarget > 16) pixelTarget = 32 - pixelTarget; 
     
-    // Draw the "eye"
     pixels.setPixelColor(pixelTarget, 0xFF0000); // Red center
-    // Trails
-    if(pixelTarget > 0) pixels.setPixelColor(pixelTarget-1, 0x330000);
-    if(pixelTarget < 16) pixels.setPixelColor(pixelTarget+1, 0x330000);
+    if(pixelTarget > 0) pixels.setPixelColor(pixelTarget-1, 0x440000);
+    if(pixelTarget < 16) pixels.setPixelColor(pixelTarget+1, 0x440000);
     pixels.show();
   }
-  // Phase 3: The Pulse / Stabilization (2800-3300ms)
-  else if (elapsed < 3300) {
+  // Phase 2: The Pulse / Stabilization (2200-3000ms) - Slower fade
+  else if (elapsed < 3000) {
     // Flash screen (invert effect)
-    if (elapsed < 2900) {
+    if (elapsed < 2350) {
       display.invertDisplay(true);
     } else {
       display.invertDisplay(false);
@@ -435,8 +396,8 @@ void updateIntroAnimation() {
     display.setCursor(35, 50);
     display.print("V2.1 READY");
 
-    // LEDs: Cyan explosion fading out
-    float brightness = map(elapsed, 2800, 3300, 255, 0) / 255.0;
+    // LEDs: Cyan explosion fading out slowly
+    float brightness = map(elapsed, 2200, 3000, 255, 0) / 255.0;
     pixels.clear();
     for(int i=0; i<NUM_PIXELS; i++) {
       pixels.setPixelColor(i, dimColor(0x00FFFF, brightness));
@@ -446,7 +407,7 @@ void updateIntroAnimation() {
   // Done
   else {
     state.introComplete = true;
-    display.invertDisplay(false); // Ensure inversion is off
+    display.invertDisplay(false);
     encoderValue = 0;
   }
 
