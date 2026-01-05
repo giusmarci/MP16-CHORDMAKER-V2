@@ -1186,11 +1186,14 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
       }
     } else if (command == 0x80 || (command == 0x90 && data2 == 0)) {
       // Note Off - just set padState, let updateMIDI handle chord/arp stopping
-      for (int i = 0; i < 9; i++) {
-        if (data1 == pads[i].triggerNote) {
-          padStates[i] = false;
-          polyArpPoolDirty = true;  // Rebuild pool for poly arp
-          // updateMIDI will detect the state change and stop chord/arp appropriately
+      // In LATCH mode, keep padStates true
+      if (!state.latchMode) {
+        for (int i = 0; i < 9; i++) {
+          if (data1 == pads[i].triggerNote) {
+            padStates[i] = false;
+            polyArpPoolDirty = true;  // Rebuild pool for poly arp
+            // updateMIDI will detect the state change and stop chord/arp appropriately
+          }
         }
       }
     }
@@ -2308,6 +2311,19 @@ void killAllNotes() {
   // Reset pitch bend first
   sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
 
+  // Stop current arp note (arp doesn't use reference counting)
+  if (lastArpNoteMidi >= 0) {
+    sendNoteOff(lastArpNoteMidi, 0, lastArpNoteChannel);
+    lastArpNoteMidi = -1;
+    lastArpPad = -1;
+    lastArpNoteIndex = -1;
+    arpNotePlaying = false;
+  }
+  arpGateOpen = false;
+  hasPendingTrigger = false;
+  stutterPending = false;
+
+  // Stop all reference-counted notes
   for (int i = 0; i < 128; i++) {
     if (noteCountA[i] > 0) sendNoteOff(i, 0, settings.midiOutputAChannel);
     noteCountA[i] = 0;
