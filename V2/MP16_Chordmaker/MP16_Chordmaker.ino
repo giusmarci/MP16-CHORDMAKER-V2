@@ -330,6 +330,16 @@ void initHardware() {
 
 //================================ INTRO ANIMATION ================================
 
+const char* bootMessages[] = {
+  "> SYSTEM INIT...",
+  "> CHECKING MEMORY",
+  "> LOADING PRESETS",
+  "> SYNCING OSC",
+  "> CALIBRATING...",
+  "> AUDIO ENGINE ON",
+  "> READY."
+};
+
 void playIntroAnimation() {
   animPhase = 0;
   animStartTime = millis();
@@ -337,79 +347,106 @@ void playIntroAnimation() {
 
 void updateIntroAnimation() {
   unsigned long elapsed = millis() - animStartTime;
-
   display.clearDisplay();
 
-  // Phase 1: Scanline effect (0-800ms)
-  if (elapsed < 800) {
-    int scanLine = map(elapsed, 0, 800, 0, 64);
-
-    // Draw pixelated "Dechorder" text
-    display.setTextSize(2);
-    display.setCursor(10, 16);
-    display.print("Dechorder");
-
-    // Scanline mask effect
-    for (int y = scanLine; y < 64; y++) {
-      display.drawFastHLine(0, y, 128, BLACK);
+  // Phase 1: Terminal Boot (0-1500ms)
+  if (elapsed < 1500) {
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    
+    // Calculate how many lines to show based on time
+    int linesToShow = map(elapsed, 0, 1500, 1, 7);
+    
+    for(int i = 0; i < linesToShow; i++) {
+      display.setCursor(0, i * 9); // 9 pixels per line spacing
+      display.print(bootMessages[i]);
     }
-
-    // LED cascade with bounce
-    int litPixels = map(elapsed, 0, 800, 0, 17);
-    pixels.clear();
-    for (int i = 0; i < min(litPixels, 17); i++) {
-      pixels.setPixelColor(i, padColors[i % 9]);
-    }
-    pixels.show();
-  }
-  // Phase 2: Glitch effect (800-1200ms)
-  else if (elapsed < 1200) {
-    display.setTextSize(2);
-
-    // Glitch offset
-    int glitchX = random(-2, 3);
-    int glitchY = random(-1, 2);
-
-    display.setCursor(10 + glitchX, 16 + glitchY);
-    display.print("Dechorder");
-
-    // Random pixel noise
-    for (int i = 0; i < 20; i++) {
-      display.drawPixel(random(128), random(64), WHITE);
-    }
-
-    // LEDs flash
-    pixels.clear();
-    if ((elapsed / 50) % 2 == 0) {
-      for (int i = 0; i < 9; i++) {
-        pixels.setPixelColor(CHORD_PAD_BUTTONS[i] + 1, padColors[i]);
+    
+    // LEDs: Random data crunching effect
+    if ((elapsed / 50) % 2 == 0) { // Update every 50ms
+      pixels.clear();
+      // Light up 3 random pixels each frame
+      for(int k=0; k<3; k++) {
+        int rPix = random(0, NUM_PIXELS);
+        // Tech green/amber colors
+        uint32_t color = (random(0,2) == 0) ? 0x00FF00 : 0xFFAA00; 
+        pixels.setPixelColor(rPix, dimColor(color, 0.5));
       }
+      pixels.show();
     }
+  }
+  // Phase 2: The Decode (1500-2800ms)
+  else if (elapsed < 2800) {
+    // "Matrix" decoding effect for the title
+    const char* finalTitle = "CHORDMAKER";
+    char displayStr[11];
+    strcpy(displayStr, finalTitle);
+    
+    // Determine how many letters are "locked in"
+    int lockedChars = map(elapsed, 1500, 2800, 0, 10);
+    
+    // Randomize the rest
+    for(int i = lockedChars; i < 10; i++) {
+      // Use random ASCII chars between 33 (!) and 126 (~)
+      displayStr[i] = (char)random(33, 91); 
+    }
+    
+    // Draw the text centered
+    display.setTextSize(2);
+    display.setCursor(4, 24);
+    display.print(displayStr);
+    
+    // Draw a loading bar below
+    int barWidth = map(elapsed, 1500, 2800, 0, 120);
+    display.drawRect(4, 45, 120, 6, WHITE);
+    display.fillRect(4, 45, barWidth, 6, WHITE);
+
+    // LEDs: Scanner effect (Knight Rider / Cylon)
+    pixels.clear();
+    int scannerPos = map(elapsed, 1500, 2800, 0, 32); // 0-16 and back
+    int pixelTarget = scannerPos;
+    if (pixelTarget > 16) pixelTarget = 32 - pixelTarget; // Bounce back
+    
+    // Draw the "eye"
+    pixels.setPixelColor(pixelTarget, 0xFF0000); // Red center
+    // Trails
+    if(pixelTarget > 0) pixels.setPixelColor(pixelTarget-1, 0x330000);
+    if(pixelTarget < 16) pixels.setPixelColor(pixelTarget+1, 0x330000);
     pixels.show();
   }
-  // Phase 3: Stable with pulse (1200-2200ms)
-  else if (elapsed < 2200) {
+  // Phase 3: The Pulse / Stabilization (2800-3300ms)
+  else if (elapsed < 3300) {
+    // Flash screen (invert effect)
+    if (elapsed < 2900) {
+      display.invertDisplay(true);
+    } else {
+      display.invertDisplay(false);
+    }
+    
     display.setTextSize(2);
-    display.setCursor(10, 16);
-    display.print("Dechorder");
+    display.setCursor(4, 24);
+    display.print("CHORDMAKER");
+    
+    // Underline
+    display.fillRect(4, 42, 120, 2, WHITE);
+    
+    // Subtitle
+    display.setTextSize(1);
+    display.setCursor(35, 50);
+    display.print("V2.1 READY");
 
-    // Underline animation
-    int lineWidth = map(elapsed - 1200, 0, 300, 0, 108);
-    lineWidth = min(lineWidth, 108);
-    display.drawFastHLine(10, 34, lineWidth, WHITE);
-
-    // LEDs breathe
-    float pulse = (sin((elapsed - 1200) * 0.006) + 1) * 0.5;
+    // LEDs: Cyan explosion fading out
+    float brightness = map(elapsed, 2800, 3300, 255, 0) / 255.0;
     pixels.clear();
-    for (int i = 0; i < 9; i++) {
-      uint32_t color = dimColor(padColors[i], 0.2 + pulse * 0.8);
-      pixels.setPixelColor(CHORD_PAD_BUTTONS[i] + 1, color);
+    for(int i=0; i<NUM_PIXELS; i++) {
+      pixels.setPixelColor(i, dimColor(0x00FFFF, brightness));
     }
     pixels.show();
   }
   // Done
   else {
     state.introComplete = true;
+    display.invertDisplay(false); // Ensure inversion is off
     encoderValue = 0;
   }
 
