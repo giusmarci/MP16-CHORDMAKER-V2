@@ -65,6 +65,15 @@ Adafruit_USBD_MIDI usb_midi;
 #include "presetV2.h"
 #include "specialModesV2.h"
 
+// Forward declarations for looper helper functions (defined later, used by looperV2.h)
+int getLooperOutputChannel();
+int looperFindPadForNoteImpl(uint8_t note);
+
+#include "looperV2.h"
+
+// Looper state (global)
+LooperState looper;
+
 // Key state arrays
 bool shiftState = false;
 bool previousShiftState = false;
@@ -270,6 +279,7 @@ void loop() {
   updateMIDI();
   updateInternalClock();  // Generate internal clock when no external
   updateArpeggiator();
+  updateLooper();         // Update looper playback/LED timing
   updateGenerativeMode(); // Mutate notes in generative mode
   updateGlide();          // Animate pitch bend glide
   checkScreensaver();     // Check for idle timeout
@@ -977,12 +987,22 @@ void processButtonPresses() {
 
   // Handle octave buttons
   if (keyStates[BTN_OCT_DOWN] && !previousKeyStates[BTN_OCT_DOWN]) {
-    state.currentOctave = constrain(state.currentOctave - 1, -3, 3);
-    killAllNotes();
+    if (shiftState) {
+      // Shift + Oct- = Toggle looper record/overdub
+      looperToggleRecordOverdub();
+    } else {
+      state.currentOctave = constrain(state.currentOctave - 1, -3, 3);
+      killAllNotes();
+    }
   }
   if (keyStates[BTN_OCT_UP] && !previousKeyStates[BTN_OCT_UP]) {
-    state.currentOctave = constrain(state.currentOctave + 1, -3, 3);
-    killAllNotes();
+    if (shiftState) {
+      // Shift + Oct+ = Clear looper
+      looperClear();
+    } else {
+      state.currentOctave = constrain(state.currentOctave + 1, -3, 3);
+      killAllNotes();
+    }
   }
 
   // Handle arp buttons
@@ -1063,6 +1083,9 @@ void updateMIDI() {
               clockPulseIndicator = true;
               lastClockPulseTime = millis();
             }
+
+            // Advance looper on each clock tick
+            looperClockTick();
           }
           break;
         case 0xFA:  // Start
@@ -1116,6 +1139,7 @@ void updateMIDI() {
         clockPulseIndicator = true;
         lastClockPulseTime = millis();
       }
+      looperClockTick();  // Advance looper
     } else if (status == 0xFA) {
       midiTransportRunning = true;
       midiClockCounter = 0;
@@ -1392,6 +1416,9 @@ void updateInternalClock() {
       clockPulseIndicator = true;
       lastClockPulseTime = currentTime;
     }
+
+    // Advance looper on each internal clock tick
+    looperClockTick();
   }
 }
 
@@ -2209,6 +2236,11 @@ void sendNoteOn(int note, int velocity, int channel) {
   Serial1.write(status);
   Serial1.write(note);
   Serial1.write(velocity);
+
+  // Record to looper if recording/overdubbing
+  if (looper.recording || looper.overdubbing) {
+    looperRecordNoteOn(note, velocity);
+  }
 }
 
 void sendNoteOff(int note, int velocity, int channel) {
@@ -2219,6 +2251,37 @@ void sendNoteOff(int note, int velocity, int channel) {
   Serial1.write(status);
   Serial1.write(note);
   Serial1.write(velocity);
+
+  // Record to looper if recording/overdubbing
+  if (looper.recording || looper.overdubbing) {
+    looperRecordNoteOff(note, velocity);
+  }
+}
+
+//================================ LOOPER HELPERS ================================
+
+// Get the output channel for looper playback
+int getLooperOutputChannel() {
+  return settings.midiOutputAChannel;
+}
+
+// Find which pad corresponds to a given MIDI note (for LED feedback)
+int looperFindPadForNoteImpl(uint8_t note) {
+  for (int i = 0; i < 9; i++) {
+    ChordV2& chord = pads[i].chord;
+    for (int j = 0; j < 8; j++) {
+      if (chord.isActive[j]) {
+        int padNote = settings.rootNote + chord.rootOffset + chord.intervals[j];
+        // Check with different octave offsets (-3 to +3)
+        for (int oct = -3; oct <= 3; oct++) {
+          if (padNote + (oct * 12) == (int)note) {
+            return i;
+          }
+        }
+      }
+    }
+  }
+  return -1;  // Not found
 }
 
 void sendControlChange(int cc, int value, int channel) {
@@ -2607,6 +2670,11 @@ void updateVisuals() {
       color = dimColor(padColors[i], IDLE_DIM);
     }
 
+    // Looper playback flash - override pad color when looper plays this pad's notes
+    if (looper.lastPlayedPad == i && (millis() - looper.lastPlayedTime < 100)) {
+      color = COLOR_PLAYING;  // Flash white
+    }
+
     pixels.setPixelColor(pixelIndex, color);
   }
 
@@ -2645,13 +2713,37 @@ void updateVisuals() {
 
   // Bottom row controls
   // Octave buttons (12, 13) -> pixels 13, 14
+  // Oct- also shows looper recording status
   bool octDownPressed = keyStates[BTN_OCT_DOWN];
   bool octUpPressed = keyStates[BTN_OCT_UP];
-  uint32_t octDownColor = octDownPressed ? COLOR_OCTAVE : dimColor(COLOR_OCTAVE, IDLE_CONTROL_DIM);
-  uint32_t octUpColor = octUpPressed ? COLOR_OCTAVE : dimColor(COLOR_OCTAVE, IDLE_CONTROL_DIM);
-  // Dim further if at limit
-  if (state.currentOctave <= -3) octDownColor = dimColor(COLOR_OCTAVE, IDLE_DIM);
+  uint32_t octDownColor, octUpColor;
+
+  // Looper LED feedback on Oct- button (pixel 13)
+  if (looper.recording) {
+    // Recording: fast red pulse
+    float pulse = 0.5 + 0.5 * sin(millis() * 0.015);
+    octDownColor = dimColor(COLOR_LOOPER_REC, pulse);
+  } else if (looper.overdubbing) {
+    // Overdubbing: orange pulse
+    float pulse = 0.5 + 0.5 * sin(millis() * 0.01);
+    octDownColor = dimColor(COLOR_LOOPER_OVER, pulse);
+  } else if (looper.playing) {
+    // Playing: green pulse
+    float pulse = 0.4 + 0.6 * sin(millis() * 0.008);
+    octDownColor = dimColor(COLOR_LOOPER_PLAY, pulse);
+  } else if (looper.hasContent) {
+    // Has content but stopped: dim magenta
+    octDownColor = dimColor(COLOR_LOOPER_IDLE, 0.3);
+  } else {
+    // Normal octave behavior
+    octDownColor = octDownPressed ? COLOR_OCTAVE : dimColor(COLOR_OCTAVE, IDLE_CONTROL_DIM);
+    if (state.currentOctave <= -3) octDownColor = dimColor(COLOR_OCTAVE, IDLE_DIM);
+  }
+
+  // Oct+ normal behavior
+  octUpColor = octUpPressed ? COLOR_OCTAVE : dimColor(COLOR_OCTAVE, IDLE_CONTROL_DIM);
   if (state.currentOctave >= 3) octUpColor = dimColor(COLOR_OCTAVE, IDLE_DIM);
+
   pixels.setPixelColor(13, octDownColor);  // Oct-
   pixels.setPixelColor(14, octUpColor);    // Oct+
 
@@ -2708,6 +2800,8 @@ void updateDisplay() {
     drawMaxNotesScreen();
   } else if (state.inSpecialModeMenu) {
     drawSpecialModeScreen();
+  } else if (looper.hasContent || looper.recording || looper.overdubbing) {
+    drawLooperScreen();  // Show looper when active
   } else {
     drawMainScreen();
   }
