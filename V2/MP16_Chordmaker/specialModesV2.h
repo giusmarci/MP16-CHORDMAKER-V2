@@ -37,7 +37,7 @@ struct GenerativeState {
 // Glides from previous note to new note using pitch bend
 
 #define GLIDE_PITCH_BEND_CENTER 8192   // Center position (no bend)
-#define GLIDE_PITCH_BEND_RANGE  12     // Semitones (±12 = full octave)
+#define GLIDE_PITCH_BEND_RANGE  2      // Semitones (±2 = standard synth default)
 
 struct GlideState {
   bool active = false;              // Is a glide currently in progress
@@ -52,6 +52,9 @@ struct GlideState {
   int lastArpNote = -1;             // Last arp note played (for mono-style glide)
   // Settings page (0=Time, 1=Mono/Poly)
   int settingsPage = 0;
+  // For CC84 polyphonic glide - store last chord's notes
+  int lastChordNotes[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+  int lastChordNoteCount = 0;
 };
 
 //================================ SCREENSAVER ================================

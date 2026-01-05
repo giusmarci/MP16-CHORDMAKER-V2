@@ -133,7 +133,8 @@ struct SettingsV2 {
   int screensaverTimeout = 30;    // Seconds before screensaver (0=off)
   // Glide mode settings
   int glideTime = 64;             // Portamento time 0-127 (default: medium)
-  int glideType = 0;              // 0=CC Portamento, 1=Pitch Bend
+  int glideType = 1;              // 0=CC Portamento, 1=Pitch Bend (default: Pitch Bend)
+  int glideMaxMs = 3000;          // Max pitch bend duration in ms (500-30000)
   // Voice mode
   bool polyMode = false;          // false=MONO (one chord at a time), true=POLY (layer chords)
 };
@@ -540,11 +541,11 @@ void processButtonPresses() {
         encoderValue = 0;
       }
     } else if (state.inGlideSettings) {
-      // In Glide settings submenu - Time and Type pages
+      // In Glide settings submenu - Time, Type, Max pages
       if (encoderState && !previousEncoderState) {
         // Click cycles through settings pages, then exits
         state.glideSettingsPage++;
-        if (state.glideSettingsPage > 1) {
+        if (state.glideSettingsPage > 2) {
           state.glideSettingsPage = 0;
           state.inGlideSettings = false;
           // Re-initialize glide mode with new settings
@@ -562,9 +563,12 @@ void processButtonPresses() {
           if (settings.glideType == 0 && state.specialMode == SPECIAL_MODE_GLIDE) {
             sendPortamentoToAllChannels(true, settings.glideTime);
           }
-        } else {
+        } else if (state.glideSettingsPage == 1) {
           // Toggle glide type (0=CC, 1=PitchBend)
           settings.glideType = (settings.glideType + 1) % 2;
+        } else {
+          // Adjust max duration (500-30000ms, step by 500)
+          settings.glideMaxMs = constrain(settings.glideMaxMs + (encoderValue > 0 ? 500 : -500), 500, 30000);
         }
         encoderValue = 0;
       }
@@ -1995,20 +1999,54 @@ void resetScreensaver() {
 //================================ CHORD PLAYBACK ================================
 
 void playChord(int pad) {
-  // Start glide BEFORE playing notes (bends whole chord together)
+  // Start glide BEFORE playing notes (for pitch bend mode)
   startGlideForPad(pad);
 
   ChordV2& chord = pads[pad].chord;
+
+  // Collect new chord notes first (for CC84 polyphonic glide)
+  int newNotes[8];
+  int newNoteChannels[8];
+  int newNoteCount = 0;
+
+  for (int j = 0; j < 8 && newNoteCount < settings.maxNotesPerChord; j++) {
+    if (chord.isActive[j]) {
+      int note = settings.rootNote + chord.rootOffset + chord.intervals[j]
+                 + (chord.octaveModifiers[j] * 12) + (state.currentOctave * 12);
+      newNotes[newNoteCount] = constrain(note, 0, 127);
+      newNoteChannels[newNoteCount] = getOutputChannel(chord.channel[j]);
+      newNoteCount++;
+    }
+  }
+
+  // Play notes with CC84 glide (if in CC mode)
+  bool useCC84 = (state.specialMode == SPECIAL_MODE_GLIDE &&
+                  settings.glideType == 0 &&
+                  glideState.lastChordNoteCount > 0);
 
   int notesPlayed = 0;
   for (int j = 0; j < 8; j++) {
     if (chord.isActive[j]) {
       if (notesPlayed < settings.maxNotesPerChord) {
+        // Send CC84 before note-on for polyphonic glide
+        if (useCC84 && notesPlayed < glideState.lastChordNoteCount) {
+          int fromNote = glideState.lastChordNotes[notesPlayed];
+          if (fromNote >= 0) {
+            int channel = getOutputChannel(chord.channel[j]);
+            sendPortamentoControl(fromNote, channel);
+          }
+        }
         playNote(pad, j);
         notesPlayed++;
       }
     }
   }
+
+  // Store new chord notes for next glide
+  for (int i = 0; i < 8; i++) {
+    glideState.lastChordNotes[i] = (i < newNoteCount) ? newNotes[i] : -1;
+  }
+  glideState.lastChordNoteCount = newNoteCount;
 }
 
 void playNote(int pad, int noteIndex) {
@@ -2172,6 +2210,12 @@ void sendPortamentoToAllChannels(bool on, int time) {
   }
 }
 
+// CC84: Portamento Control - tells synth which note to glide FROM
+// This enables polyphonic glide: send CC84 before each note-on
+void sendPortamentoControl(int fromNote, int channel) {
+  sendControlChange(84, fromNote, channel);  // CC84: source note for glide
+}
+
 // Pitch bend: 14-bit value (0-16383), center=8192
 void sendPitchBend(int value, int channel) {
   if (channel < 0 || channel > 15) return;
@@ -2229,6 +2273,9 @@ void initGlideMode() {
   glideState.lastArpNote = -1;
   glideState.oldPadToStop = -1;
   glideState.active = false;
+  // Clear CC84 polyphonic glide state
+  for (int i = 0; i < 8; i++) glideState.lastChordNotes[i] = -1;
+  glideState.lastChordNoteCount = 0;
 }
 
 // Reset when leaving glide mode - turn off portamento or reset pitch bend
@@ -2249,6 +2296,9 @@ void exitGlideMode() {
   glideState.lastPad = -1;
   glideState.lastArpNote = -1;
   glideState.oldPadToStop = -1;
+  // Clear CC84 polyphonic glide state
+  for (int i = 0; i < 8; i++) glideState.lastChordNotes[i] = -1;
+  glideState.lastChordNoteCount = 0;
 }
 
 // Get root note for a pad (lowest note of chord with octave)
@@ -2259,23 +2309,32 @@ int getPadRootNote(int pad) {
 }
 
 // Start a glide from previous chord to new chord (call BEFORE playing notes)
-// Only works in MONO mode (POLY can't glide between chords - which one to glide from?)
+// Works in both MONO and POLY - glides from last chord's root to new chord's root
 void startGlideForPad(int newPad) {
   if (state.specialMode != SPECIAL_MODE_GLIDE) return;
-  if (settings.polyMode) return;  // No chord glide in poly mode
 
   int newRoot = getPadRootNote(newPad);
 
-  if (glideState.lastRootNote < 0 || glideState.lastPad == newPad) {
-    // No previous chord or same pad - no glide, just update state
+  // CRITICAL: Only glide if previous pad is STILL PLAYING
+  // If lastPad already stopped, no glide - just play new chord normally
+  bool lastPadStillPlaying = (glideState.lastPad >= 0 && glideState.lastPad < 9 &&
+                               padStates[glideState.lastPad]);
+
+  if (glideState.lastRootNote < 0 || glideState.lastPad == newPad || !lastPadStillPlaying) {
+    // No previous chord, same pad, or previous chord stopped - no glide
     glideState.lastRootNote = newRoot;
     glideState.lastPad = newPad;
     glideState.oldPadToStop = -1;
     return;
   }
 
-  // Remember old pad to stop after new chord plays (creates legato overlap)
-  glideState.oldPadToStop = glideState.lastPad;
+  // For Pitch Bend mode: MUST stop old chord (otherwise both chords get bent)
+  // For CC mode: In MONO stop old chord, in POLY keep it (synth handles glide per-voice)
+  if (settings.glideType == 1 || !settings.polyMode) {
+    glideState.oldPadToStop = glideState.lastPad;
+  } else {
+    glideState.oldPadToStop = -1;  // CC mode + POLY: let synth handle it
+  }
 
   if (settings.glideType == 0) {
     // CC Portamento mode - synth handles glide, we just need legato overlap
@@ -2377,14 +2436,22 @@ void updateGlide() {
   }
 
   // Pitch Bend mode - animate the glide ourselves
-  unsigned long glideDuration = map(settings.glideTime, 0, 127, 20, 800);
+  // Time range: 20ms (fast) to glideMaxMs (configurable, default 3000ms)
+  unsigned long glideDuration = map(settings.glideTime, 0, 127, 20, settings.glideMaxMs);
+
+  // Stop old chord early (30ms) - just enough overlap for smooth transition
+  // MUST stop before glide animation or old chord gets bent too!
+  if (elapsed >= 30 && glideState.oldPadToStop >= 0) {
+    stopChord(glideState.oldPadToStop);
+    glideState.oldPadToStop = -1;
+  }
 
   if (elapsed >= glideDuration) {
     // Glide complete
     sendPitchBendToAllChannels(glideState.targetBend);
     glideState.active = false;
 
-    // Stop old chord now (after glide - creates overlap blend)
+    // Safety: stop old chord if not already stopped
     if (glideState.oldPadToStop >= 0) {
       stopChord(glideState.oldPadToStop);
       glideState.oldPadToStop = -1;
@@ -2698,9 +2765,10 @@ void drawSpecialModeScreen() {
       }
     }
   } else if (state.inGlideSettings) {
-    // Glide settings submenu - Time and Type pages
+    // Glide settings submenu - Time, Type, Max pages
     display.setTextSize(1);
-    const char* label = (state.glideSettingsPage == 0) ? "TIME" : "TYPE";
+    const char* labels[] = {"TIME", "TYPE", "MAX"};
+    const char* label = labels[state.glideSettingsPage];
     int labelLen = strlen(label);
     display.setCursor(64 - (labelLen * 3), 8);
     display.print(label);
@@ -2710,8 +2778,11 @@ void drawSpecialModeScreen() {
     char valueStr[16];
     if (state.glideSettingsPage == 0) {
       snprintf(valueStr, sizeof(valueStr), "%d", settings.glideTime);
-    } else {
+    } else if (state.glideSettingsPage == 1) {
       snprintf(valueStr, sizeof(valueStr), "%s", settings.glideType == 0 ? "CC" : "BEND");
+    } else {
+      // Show max in seconds with 1 decimal
+      snprintf(valueStr, sizeof(valueStr), "%.1fs", settings.glideMaxMs / 1000.0f);
     }
     int valLen = strlen(valueStr);
     display.setCursor(64 - (valLen * 6), 24);
@@ -2727,19 +2798,24 @@ void drawSpecialModeScreen() {
       display.print("F");
       display.setCursor(118, 50);
       display.print("S");
-    } else {
+    } else if (state.glideSettingsPage == 1) {
       // Description for type
       display.setTextSize(1);
       const char* desc = settings.glideType == 0 ? "CC Portamento" : "Pitch Bend";
       int descLen = strlen(desc);
       display.setCursor(64 - (descLen * 3), 48);
       display.print(desc);
+    } else {
+      // Description for max (only applies to Pitch Bend mode)
+      display.setTextSize(1);
+      display.setCursor(22, 48);
+      display.print("(Pitch Bend only)");
     }
 
     // Page dots at bottom
     int dotY = 60;
-    for (int i = 0; i < 2; i++) {
-      int x = 58 + (i * 12);
+    for (int i = 0; i < 3; i++) {
+      int x = 52 + (i * 12);
       if (i == state.glideSettingsPage) {
         display.fillCircle(x, dotY, 3, WHITE);
       } else {
