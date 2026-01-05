@@ -1148,21 +1148,46 @@ void updateMIDI() {
       // Pad released
       if (!state.latchMode) {
         // LATCH off: stop notes when released
-        // Only stop if this pad is still active OR no pad is active
-        // If another pad is active, the switching logic already stopped this chord
-        if (state.activePad == i || state.activePad == -1) {
-          if (state.arpRate == 0) {
-            stopChord(i);
-          } else {
-            // Arp mode: stop current arp note
-            stopCurrentArpNote();
-            // If Play Chords was on, also stop the chord
-            if (settings.arpPlayChords) {
-              stopChord(i);
+
+        // Special handling for pitch bend glide mode
+        if (state.specialMode == SPECIAL_MODE_GLIDE && settings.glideType == 1 && glideState.sourcePad >= 0) {
+          // In pitch bend glide: check if this is the SOURCE pad (the one with actual notes)
+          if (i == glideState.sourcePad) {
+            // Source pad released - stop the notes and reset pitch bend
+            if (state.arpRate == 0) {
+              stopChord(glideState.sourcePad);
+            } else {
+              stopCurrentArpNote();
+              if (settings.arpPlayChords) {
+                stopChord(glideState.sourcePad);
+              }
             }
-          }
-          if (state.activePad == i) {
+            sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+            glideState.active = false;
+            glideState.sourcePad = -1;
+            glideState.lastPad = -1;
+            glideState.lastRootNote = -1;
             state.activePad = -1;
+          }
+          // Target pad released but source still held - do nothing, keep bending
+        } else {
+          // Normal mode or CC portamento mode
+          // Only stop if this pad is still active OR no pad is active
+          // If another pad is active, the switching logic already stopped this chord
+          if (state.activePad == i || state.activePad == -1) {
+            if (state.arpRate == 0) {
+              stopChord(i);
+            } else {
+              // Arp mode: stop current arp note
+              stopCurrentArpNote();
+              // If Play Chords was on, also stop the chord
+              if (settings.arpPlayChords) {
+                stopChord(i);
+              }
+            }
+            if (state.activePad == i) {
+              state.activePad = -1;
+            }
           }
         }
       }
@@ -1999,8 +2024,16 @@ void resetScreensaver() {
 //================================ CHORD PLAYBACK ================================
 
 void playChord(int pad) {
-  // Start glide BEFORE playing notes (for pitch bend mode)
-  startGlideForPad(pad);
+  // Check if we should glide (pitch bend mode keeps old notes, bends them)
+  bool shouldGlide = startGlideForPad(pad);
+
+  // In pitch bend glide mode: DON'T play new notes, old notes just get bent
+  if (shouldGlide && settings.glideType == 1) {
+    // Just update which pad we're "targeting" - notes from old pad keep playing
+    glideState.lastPad = pad;
+    glideState.lastRootNote = getPadRootNote(pad);
+    return;  // Don't play new notes!
+  }
 
   ChordV2& chord = pads[pad].chord;
 
@@ -2270,6 +2303,7 @@ void initGlideMode() {
   }
   glideState.lastRootNote = -1;
   glideState.lastPad = -1;
+  glideState.sourcePad = -1;
   glideState.lastArpNote = -1;
   glideState.oldPadToStop = -1;
   glideState.active = false;
@@ -2294,6 +2328,7 @@ void exitGlideMode() {
   glideState.active = false;
   glideState.lastRootNote = -1;
   glideState.lastPad = -1;
+  glideState.sourcePad = -1;
   glideState.lastArpNote = -1;
   glideState.oldPadToStop = -1;
   // Clear CC84 polyphonic glide state
@@ -2308,63 +2343,73 @@ int getPadRootNote(int pad) {
   return settings.rootNote + chord.rootOffset + (state.currentOctave * 12);
 }
 
-// Start a glide from previous chord to new chord (call BEFORE playing notes)
-// Works in both MONO and POLY - glides from last chord's root to new chord's root
-void startGlideForPad(int newPad) {
-  if (state.specialMode != SPECIAL_MODE_GLIDE) return;
+// Start a glide from previous chord to new chord
+// Returns true if a glide was started (caller should NOT play new notes for pitch bend mode)
+// For pitch bend mode: keeps old notes playing and bends them TO the new pitch
+bool startGlideForPad(int newPad) {
+  if (state.specialMode != SPECIAL_MODE_GLIDE) return false;
 
   int newRoot = getPadRootNote(newPad);
 
-  // CRITICAL: Only glide if previous pad is STILL PLAYING
-  // If lastPad already stopped, no glide - just play new chord normally
-  bool lastPadStillPlaying = (glideState.lastPad >= 0 && glideState.lastPad < 9 &&
-                               padStates[glideState.lastPad]);
+  // CRITICAL: Only glide if the SOURCE pad (one with actual notes) is STILL PLAYING
+  // For pitch bend mode, sourcePad has the notes; for CC mode, lastPad has the notes
+  int checkPad = (settings.glideType == 1 && glideState.sourcePad >= 0) ?
+                 glideState.sourcePad : glideState.lastPad;
+  bool sourceStillPlaying = (checkPad >= 0 && checkPad < 9 && padStates[checkPad]);
 
-  if (glideState.lastRootNote < 0 || glideState.lastPad == newPad || !lastPadStillPlaying) {
-    // No previous chord, same pad, or previous chord stopped - no glide
+  if (glideState.lastRootNote < 0 || checkPad == newPad || !sourceStillPlaying) {
+    // No previous chord, same pad, or previous chord stopped - no glide, play normally
     glideState.lastRootNote = newRoot;
     glideState.lastPad = newPad;
+    glideState.sourcePad = newPad;  // This pad will have the actual notes playing
     glideState.oldPadToStop = -1;
-    return;
-  }
-
-  // For Pitch Bend mode: MUST stop old chord (otherwise both chords get bent)
-  // For CC mode: In MONO stop old chord, in POLY keep it (synth handles glide per-voice)
-  if (settings.glideType == 1 || !settings.polyMode) {
-    glideState.oldPadToStop = glideState.lastPad;
-  } else {
-    glideState.oldPadToStop = -1;  // CC mode + POLY: let synth handle it
+    return false;
   }
 
   if (settings.glideType == 0) {
     // CC Portamento mode - synth handles glide, we just need legato overlap
-    // Set active to trigger oldPadToStop cleanup after short overlap delay
+    // For CC mode: In MONO stop old chord after overlap, in POLY keep it (synth handles glide per-voice)
+    if (!settings.polyMode) {
+      glideState.oldPadToStop = glideState.lastPad;
+    } else {
+      glideState.oldPadToStop = -1;  // CC mode + POLY: let synth handle it
+    }
     glideState.startTime = millis();
     glideState.active = true;
+    // CC mode plays new notes (synth handles the glide)
+    glideState.lastRootNote = newRoot;
+    glideState.lastPad = newPad;
+    glideState.sourcePad = newPad;  // New pad will have the notes in CC mode
+    return false;  // Play new notes normally
   } else {
-    // Pitch Bend mode - we animate the glide ourselves
-    // Calculate semitone difference between chord roots
-    int semitones = glideState.lastRootNote - newRoot;
+    // Pitch Bend mode - OLD notes keep playing, we bend them TO the new pitch
+    // DON'T stop the old chord - it keeps sounding while we bend it
+    glideState.oldPadToStop = -1;
 
-    // Clamp to pitch bend range
+    // Calculate semitone difference: how much to bend OLD notes to reach NEW pitch
+    // Positive = bend up, Negative = bend down
+    int semitones = newRoot - glideState.lastRootNote;
+
+    // Clamp to pitch bend range (±2 semitones standard)
     semitones = constrain(semitones, -GLIDE_PITCH_BEND_RANGE, GLIDE_PITCH_BEND_RANGE);
 
-    // Convert to pitch bend value
+    // Convert to pitch bend value (8192 = center, range is 0-16383)
     int bendPerSemitone = 8192 / GLIDE_PITCH_BEND_RANGE;
-    int startBendOffset = semitones * bendPerSemitone;
+    int targetBendOffset = semitones * bendPerSemitone;
 
-    glideState.startBend = GLIDE_PITCH_BEND_CENTER + startBendOffset;
-    glideState.targetBend = GLIDE_PITCH_BEND_CENTER;
+    // Start from current bend position (could be mid-glide), target the new pitch
+    glideState.startBend = glideState.active ?
+      (glideState.startBend + (int)((glideState.targetBend - glideState.startBend) *
+       (float)(millis() - glideState.startTime) / map(settings.glideTime, 0, 127, 20, settings.glideMaxMs))) :
+      GLIDE_PITCH_BEND_CENTER;
+    glideState.targetBend = GLIDE_PITCH_BEND_CENTER + targetBendOffset;
     glideState.startTime = millis();
     glideState.active = true;
 
-    // Send initial pitch bend to ALL channels (whole chord bends together)
-    sendPitchBendToAllChannels(glideState.startBend);
+    // Don't update lastRootNote/lastPad here - playChord will do it after we return
+    // This tells playChord that a glide is happening
+    return true;  // DON'T play new notes - old notes are bending
   }
-
-  // Update state
-  glideState.lastRootNote = newRoot;
-  glideState.lastPad = newPad;
 }
 
 // Start a glide for arpeggiator (note-by-note, mono synth style)
@@ -2436,26 +2481,14 @@ void updateGlide() {
   }
 
   // Pitch Bend mode - animate the glide ourselves
+  // Old chord was already stopped in startGlideForPad() before pitch bend was sent
   // Time range: 20ms (fast) to glideMaxMs (configurable, default 3000ms)
   unsigned long glideDuration = map(settings.glideTime, 0, 127, 20, settings.glideMaxMs);
 
-  // Stop old chord early (30ms) - just enough overlap for smooth transition
-  // MUST stop before glide animation or old chord gets bent too!
-  if (elapsed >= 30 && glideState.oldPadToStop >= 0) {
-    stopChord(glideState.oldPadToStop);
-    glideState.oldPadToStop = -1;
-  }
-
   if (elapsed >= glideDuration) {
-    // Glide complete
+    // Glide complete - snap to center
     sendPitchBendToAllChannels(glideState.targetBend);
     glideState.active = false;
-
-    // Safety: stop old chord if not already stopped
-    if (glideState.oldPadToStop >= 0) {
-      stopChord(glideState.oldPadToStop);
-      glideState.oldPadToStop = -1;
-    }
   } else {
     // Interpolate pitch bend with smooth curve
     float progress = (float)elapsed / (float)glideDuration;
@@ -2496,6 +2529,7 @@ void killAllNotes() {
   // Reset glide state so next chord/note starts fresh
   glideState.lastRootNote = -1;
   glideState.lastPad = -1;
+  glideState.sourcePad = -1;
   glideState.lastArpNote = -1;
   glideState.oldPadToStop = -1;
   glideState.active = false;

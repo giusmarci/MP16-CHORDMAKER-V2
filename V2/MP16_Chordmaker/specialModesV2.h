@@ -45,8 +45,9 @@ struct GlideState {
   int startBend = 8192;             // Starting pitch bend value
   int targetBend = 8192;            // Target pitch bend (usually center)
   // For chord mode
-  int lastRootNote = -1;            // Last chord's root note
-  int lastPad = -1;                 // Last pad played
+  int lastRootNote = -1;            // Target root note (what we're bending towards)
+  int lastPad = -1;                 // Target pad (what we're bending towards)
+  int sourcePad = -1;               // Source pad (the one with actual notes playing)
   int oldPadToStop = -1;            // Old pad to stop when glide completes (for overlap)
   // For arp mode (note-by-note glide)
   int lastArpNote = -1;             // Last arp note played (for mono-style glide)
