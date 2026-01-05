@@ -589,11 +589,16 @@ void processButtonPresses() {
     } else {
       // Just 7 = toggle LATCH mode
       state.latchMode = !state.latchMode;
-      // If turning off latch, stop ALL notes immediately
+      // If turning off latch, stop ALL notes and clear all latched pads
       if (!state.latchMode) {
         stopCurrentArpNote();
         killAllNotes();
         state.activePad = -1;
+        // Clear all latched pad states
+        for (int p = 0; p < 9; p++) {
+          padStates[p] = false;
+        }
+        polyArpPoolDirty = true;
       }
     }
   }
@@ -888,6 +893,28 @@ void processButtonPresses() {
         continue;  // Don't trigger chord play
       }
 
+      // In LATCH mode, pressing a latched pad toggles it off
+      if (state.latchMode && padStates[i]) {
+        // This pad is latched - toggle it off
+        padStates[i] = false;
+        polyArpPoolDirty = true;
+        if (state.arpRate > 0) {
+          stopCurrentArpNote();
+        }
+        stopChord(i);
+        // If this was the active pad, find another latched pad or set to -1
+        if (state.activePad == i) {
+          state.activePad = -1;
+          for (int p = 0; p < 9; p++) {
+            if (padStates[p]) {
+              state.activePad = p;
+              break;
+            }
+          }
+        }
+        continue;  // Don't play the chord again
+      }
+
       // Normal press - play chord
       // In MONO mode: stop previous chord before playing new one
       // In POLY mode: let multiple chords play together
@@ -898,6 +925,11 @@ void processButtonPresses() {
         // Stop held chord if switching pads (unless glide mode - glide handles overlap)
         if (state.specialMode != SPECIAL_MODE_GLIDE) {
           stopChord(state.activePad);
+        }
+        // In LATCH + MONO mode, also clear the old pad's latched state
+        if (state.latchMode) {
+          padStates[state.activePad] = false;
+          polyArpPoolDirty = true;
         }
       }
       // Play chord
@@ -911,8 +943,11 @@ void processButtonPresses() {
     } else if (!keyStates[btnIndex] && previousKeyStates[btnIndex]) {
       // Button released (only if not shift action)
       if (!shiftState) {
-        padStates[i] = false;
-        polyArpPoolDirty = true;  // Rebuild pool for poly arp
+        // In LATCH mode, keep padStates true so notes keep playing
+        if (!state.latchMode) {
+          padStates[i] = false;
+          polyArpPoolDirty = true;  // Rebuild pool for poly arp
+        }
         // Note: chord stopping is handled in updateMIDI based on padStates change
         // This ensures proper coordination between pad switching and release
       }
