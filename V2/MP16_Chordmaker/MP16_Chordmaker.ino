@@ -1153,21 +1153,36 @@ void updateMIDI() {
         if (state.specialMode == SPECIAL_MODE_GLIDE && settings.glideType == 1 && glideState.sourcePad >= 0) {
           // In pitch bend glide: check if this is the SOURCE pad (the one with actual notes)
           if (i == glideState.sourcePad) {
-            // Source pad released - stop the notes and reset pitch bend
-            if (state.arpRate == 0) {
-              stopChord(glideState.sourcePad);
+            // Source pad released - check if target pad is still held
+            bool targetStillHeld = (glideState.lastPad >= 0 && glideState.lastPad < 9 &&
+                                    glideState.lastPad != i && padStates[glideState.lastPad]);
+
+            if (targetStillHeld) {
+              // Target pad still held - transfer ownership, keep notes playing at current pitch
+              // The notes now "belong" to the target pad
+              glideState.sourcePad = glideState.lastPad;
+              glideState.lastRootNote = getPadRootNote(glideState.lastPad);
+              // Snap pitch bend to center (we're now at the target pitch)
+              sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+              glideState.active = false;  // Glide animation done
+              state.activePad = glideState.lastPad;
             } else {
-              stopCurrentArpNote();
-              if (settings.arpPlayChords) {
+              // No target held - stop the notes and reset
+              if (state.arpRate == 0) {
                 stopChord(glideState.sourcePad);
+              } else {
+                stopCurrentArpNote();
+                if (settings.arpPlayChords) {
+                  stopChord(glideState.sourcePad);
+                }
               }
+              sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
+              glideState.active = false;
+              glideState.sourcePad = -1;
+              glideState.lastPad = -1;
+              glideState.lastRootNote = -1;
+              state.activePad = -1;
             }
-            sendPitchBendToAllChannels(GLIDE_PITCH_BEND_CENTER);
-            glideState.active = false;
-            glideState.sourcePad = -1;
-            glideState.lastPad = -1;
-            glideState.lastRootNote = -1;
-            state.activePad = -1;
           }
           // Target pad released but source still held - do nothing, keep bending
         } else {
