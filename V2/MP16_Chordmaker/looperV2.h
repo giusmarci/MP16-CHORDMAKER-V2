@@ -60,8 +60,10 @@ struct LooperState {
   // Prevent looper playback from being re-recorded
   bool isPlayingBack = false;    // True while sending playback notes
 
-  // Display histogram (16 columns representing time slices)
-  uint8_t displayBins[16];       // Note density per time slice
+  // Animation for newly recorded notes
+  unsigned long lastRecordTime = 0;  // When last note was recorded
+  uint32_t lastRecordTick = 0;       // Tick position of last recorded note
+  uint8_t lastRecordNote = 0;        // Note value of last recorded note
 };
 
 // Global looper state (declared in main sketch)
@@ -89,7 +91,6 @@ void initLooper() {
   looper.loopLengthBars = LOOP_LENGTH_1_BAR;
   looper.loopLengthTicks = LOOP_TICKS_PER_BAR;
   looper.isPlayingBack = false;
-  memset(looper.displayBins, 0, sizeof(looper.displayBins));
 }
 
 // Calculate loop length in ticks based on bars setting
@@ -130,13 +131,10 @@ void looperRecordNoteOn(uint8_t note, uint8_t velocity) {
   looper.events[insertPos] = evt;
   looper.eventCount++;
 
-  // Update display histogram
-  if (looper.loopLengthTicks > 0) {
-    int bin = (looper.currentTick * 16) / looper.loopLengthTicks;
-    if (bin < 16 && looper.displayBins[bin] < 255) {
-      looper.displayBins[bin]++;
-    }
-  }
+  // Track for animation
+  looper.lastRecordTime = millis();
+  looper.lastRecordTick = looper.currentTick;
+  looper.lastRecordNote = note;
 }
 
 // Record a note-off event
@@ -168,22 +166,6 @@ int looperFindPadForNote(uint8_t note) {
   return looperFindPadForNoteImpl(note);
 }
 
-// Rebuild display histogram from events
-void looperBuildDisplayHistogram() {
-  memset(looper.displayBins, 0, sizeof(looper.displayBins));
-
-  if (looper.loopLengthTicks == 0 || looper.eventCount == 0) return;
-
-  for (int i = 0; i < looper.eventCount; i++) {
-    if (!LOOP_EVENT_IS_OFF(looper.events[i])) {  // Only count note-ons
-      int bin = (looper.events[i].timestamp * 16) / looper.loopLengthTicks;
-      if (bin < 16 && looper.displayBins[bin] < 255) {
-        looper.displayBins[bin]++;
-      }
-    }
-  }
-}
-
 // Toggle between record/overdub/play states (Shift+Oct-)
 void looperToggleRecordOverdub() {
   if (!looper.hasContent && !looper.recording) {
@@ -196,7 +178,6 @@ void looperToggleRecordOverdub() {
     looper.recordStartTick = 0;
     looper.playbackIndex = 0;
     looperCalculateLoopLength();
-    memset(looper.displayBins, 0, sizeof(looper.displayBins));
   } else if (looper.recording) {
     // Was recording first pass: Stop and start playback
     looper.recording = false;
@@ -209,12 +190,10 @@ void looperToggleRecordOverdub() {
       looper.playing = true;
       looper.currentTick = 0;
       looper.playbackIndex = 0;
-      looperBuildDisplayHistogram();
     }
   } else if (looper.overdubbing) {
     // Was overdubbing: Stop overdub, continue playback
     looper.overdubbing = false;
-    looperBuildDisplayHistogram();  // Update display
   } else if (looper.playing) {
     // Was playing: Start overdub
     looper.overdubbing = true;
@@ -237,7 +216,6 @@ void looperClear() {
   looper.playbackIndex = 0;
   looper.lastPlayedPad = -1;
   looper.isPlayingBack = false;
-  memset(looper.displayBins, 0, sizeof(looper.displayBins));
 
   killAllNotes();  // Stop any hanging notes
 }
@@ -288,7 +266,6 @@ void looperClockTick() {
       looper.overdubbing = true;
       looper.playing = true;
       looper.hasContent = true;
-      looperBuildDisplayHistogram();
     }
   }
 }
@@ -315,53 +292,87 @@ void drawLooperScreen() {
   } else if (looper.hasContent) {
     statusText = "STOPPED";
   }
-  int textWidth = strlen(statusText) * 6;  // 6 pixels per char at size 1
+  int textWidth = strlen(statusText) * 6;
   display.setCursor(64 - textWidth / 2, 0);
   display.print(statusText);
 
-  // Divider line
-  display.drawFastHLine(0, 10, 128, WHITE);
-
-  // Histogram visualization (16 columns, y=14 to y=42)
-  // Find max value for scaling
-  uint8_t maxVal = 1;
-  for (int i = 0; i < 16; i++) {
-    if (looper.displayBins[i] > maxVal) maxVal = looper.displayBins[i];
+  // Beat markers at top (4 beats for 1 bar)
+  int totalBeats = looper.loopLengthTicks / LOOP_TICKS_PER_BEAT;
+  for (int b = 0; b <= totalBeats; b++) {
+    int x = 4 + (b * 120) / totalBeats;
+    display.drawFastVLine(x, 10, 3, WHITE);
   }
 
-  for (int col = 0; col < 16; col++) {
-    int height = (looper.displayBins[col] * 24) / maxVal;
-    if (looper.displayBins[col] > 0 && height < 2) height = 2;  // Min visible
-    int x = 4 + col * 7;
-    int y = 40 - height;
-    if (height > 0) {
-      display.fillRect(x, y, 5, height, WHITE);
+  // Note visualization area: y=14 to y=48 (34 pixels height)
+  // X = time (4 to 124), Y = pitch mapped to display
+
+  // Draw all recorded note-on events as dots
+  unsigned long now = millis();
+  bool isNewNoteFlash = (now - looper.lastRecordTime) < 400;
+
+  for (int i = 0; i < looper.eventCount; i++) {
+    LoopEvent& evt = looper.events[i];
+    if (LOOP_EVENT_IS_OFF(evt)) continue;  // Only show note-ons
+
+    // X position based on timestamp
+    int x = 4 + ((evt.timestamp * 120) / looper.loopLengthTicks);
+    x = constrain(x, 4, 124);
+
+    // Y position based on note pitch (map MIDI note to 34 pixel range)
+    // Use note modulo 36 to fit ~3 octaves, inverted so high notes are at top
+    int noteOffset = evt.note % 36;  // 3 octaves range
+    int y = 47 - (noteOffset * 33) / 35;  // Map to 14-47 range
+
+    // Check if this is a recently added note
+    bool isRecent = isNewNoteFlash &&
+                    evt.timestamp == looper.lastRecordTick &&
+                    evt.note == looper.lastRecordNote;
+
+    if (isRecent) {
+      // Animated expanding circle for new notes
+      int pulseSize = 2 + ((now - looper.lastRecordTime) / 50) % 4;
+      display.drawCircle(x, y, pulseSize, WHITE);
+      display.fillCircle(x, y, 2, WHITE);
+    } else {
+      // Normal dot for existing notes
+      display.fillCircle(x, y, 1, WHITE);
     }
   }
 
-  // Playhead line (vertical line showing current position)
-  if (looper.loopLengthTicks > 0) {
-    int playheadX = 4 + ((looper.currentTick * 112) / looper.loopLengthTicks);
-    playheadX = constrain(playheadX, 4, 116);
-    display.drawFastVLine(playheadX, 14, 28, WHITE);
-    // Small triangle at bottom
-    display.fillTriangle(playheadX - 2, 44, playheadX + 2, 44, playheadX, 48, WHITE);
+  // Playhead - simple vertical line with small triangle at top
+  if (looper.loopLengthTicks > 0 && (looper.playing || looper.recording || looper.overdubbing)) {
+    int playheadX = 4 + ((looper.currentTick * 120) / looper.loopLengthTicks);
+    playheadX = constrain(playheadX, 4, 124);
+
+    // Thin line
+    display.drawFastVLine(playheadX, 14, 34, WHITE);
+    // Small triangle at top
+    display.fillTriangle(playheadX - 2, 13, playheadX + 2, 13, playheadX, 16, WHITE);
   }
 
   // Divider line
   display.drawFastHLine(0, 50, 128, WHITE);
 
-  // Bottom info bar - centered beat counter
+  // Bottom: beat counter + note count
   display.setTextSize(1);
-  if (looper.loopLengthTicks > 0) {
-    int currentBeat = (looper.currentTick / LOOP_TICKS_PER_BEAT) + 1;
-    int totalBeats = looper.loopLengthTicks / LOOP_TICKS_PER_BEAT;
-    char beatStr[16];
-    snprintf(beatStr, sizeof(beatStr), "BEAT %d/%d", currentBeat, totalBeats);
-    int w = strlen(beatStr) * 6;
-    display.setCursor(64 - w / 2, 54);
-    display.print(beatStr);
+  int currentBeat = (looper.currentTick / LOOP_TICKS_PER_BEAT) + 1;
+
+  // Left: beat
+  display.setCursor(4, 54);
+  display.print(currentBeat);
+  display.print("/");
+  display.print(totalBeats);
+
+  // Right: note count (only note-ons)
+  int noteOnCount = 0;
+  for (int i = 0; i < looper.eventCount; i++) {
+    if (!LOOP_EVENT_IS_OFF(looper.events[i])) noteOnCount++;
   }
+  char noteStr[12];
+  snprintf(noteStr, sizeof(noteStr), "%d notes", noteOnCount);
+  int w = strlen(noteStr) * 6;
+  display.setCursor(124 - w, 54);
+  display.print(noteStr);
 }
 
 #endif // LOOPER_V2_H
