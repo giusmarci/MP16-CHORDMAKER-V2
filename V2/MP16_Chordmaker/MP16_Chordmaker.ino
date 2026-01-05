@@ -209,6 +209,13 @@ int lastArpNoteMidi = -1;                   // Actual MIDI note number that was 
 int lastArpNoteChannel = 0;                 // Channel used for last note
 bool arpNotePlaying = false;                // Is an arp note currently sounding
 
+// Poly arp mode - combined note pool from multiple pads
+int polyArpPads[72];                        // Which pad each note comes from (9 pads * 8 notes)
+int polyArpNoteIndices[72];                 // Which note index in that pad
+int polyArpNoteCount = 0;                   // Total notes in poly pool
+int polyArpCurrentPos = 0;                  // Current position in poly pool
+bool polyArpPoolDirty = true;               // Need to rebuild pool
+
 SettingsV2 settings;
 RuntimeState state;
 PadV2 pads[9];
@@ -895,6 +902,7 @@ void processButtonPresses() {
       }
       // Play chord
       padStates[i] = true;
+      polyArpPoolDirty = true;  // Rebuild pool for poly arp
       state.activePad = i;  // Track most recent pad (for arp, display, etc.)
       // Reset arp state when switching pads
       state.arpNoteIndex = 0;
@@ -904,6 +912,7 @@ void processButtonPresses() {
       // Button released (only if not shift action)
       if (!shiftState) {
         padStates[i] = false;
+        polyArpPoolDirty = true;  // Rebuild pool for poly arp
         // Note: chord stopping is handled in updateMIDI based on padStates change
         // This ensures proper coordination between pad switching and release
       }
@@ -1132,6 +1141,7 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
             }
           }
           padStates[i] = true;
+          polyArpPoolDirty = true;  // Rebuild pool for poly arp
           state.activePad = i;
           // Reset arp state when switching pads
           state.arpNoteIndex = 0;
@@ -1144,6 +1154,7 @@ void processIncomingMIDI(uint8_t status, uint8_t data1, uint8_t data2) {
       for (int i = 0; i < 9; i++) {
         if (data1 == pads[i].triggerNote) {
           padStates[i] = false;
+          polyArpPoolDirty = true;  // Rebuild pool for poly arp
           // updateMIDI will detect the state change and stop chord/arp appropriately
         }
       }
@@ -1282,8 +1293,21 @@ void updateInternalClock() {
 }
 
 void updateArpeggiator() {
-  if (state.arpRate == 0 || state.activePad < 0) {
+  // In poly mode, check if any pads are held
+  bool hasActivePads = state.activePad >= 0;
+  if (settings.polyMode) {
+    for (int i = 0; i < 9 && !hasActivePads; i++) {
+      if (padStates[i]) hasActivePads = true;
+    }
+  }
+
+  if (state.arpRate == 0 || !hasActivePads) {
     return;
+  }
+
+  // Rebuild poly pool if needed
+  if (settings.polyMode && polyArpPoolDirty) {
+    buildPolyArpPool();
   }
 
   unsigned long currentTime = millis();
@@ -1300,9 +1324,17 @@ void updateArpeggiator() {
     if (currentTime - arpNoteOnTime >= gateTime) {
       if (state.arpMode == 6) {
         // Chord mode - stop all notes
-        stopChord(state.activePad);
+        if (settings.polyMode) {
+          // Stop all held pads
+          for (int p = 0; p < 9; p++) {
+            if (padStates[p]) stopChord(p);
+          }
+        } else {
+          stopChord(state.activePad);
+        }
       } else {
-        stopArpNote(state.activePad, state.arpNoteIndex);
+        // Use lastArpPad which tracks correct pad for poly mode
+        stopArpNote(lastArpPad, lastArpNoteIndex);
       }
       arpGateOpen = false;
       arpNotePlaying = false;
@@ -1379,7 +1411,11 @@ void updateArpeggiator() {
     if (arpGateOpen) {
       if (state.arpMode == 6) {
         // Chord mode - stop all notes
-        if (lastArpPad >= 0) {
+        if (settings.polyMode) {
+          for (int p = 0; p < 9; p++) {
+            if (padStates[p]) stopChord(p);
+          }
+        } else if (lastArpPad >= 0) {
           stopChord(lastArpPad);
         }
       } else {
@@ -1397,18 +1433,71 @@ void updateArpeggiator() {
     // Play note(s)
     if (state.arpMode == 6) {
       // Chord mode - play ALL notes at once (like strumming)
-      playChord(state.activePad);
-      lastArpPad = state.activePad;  // Track for gate close
+      if (settings.polyMode) {
+        // Play all held pads
+        for (int p = 0; p < 9; p++) {
+          if (padStates[p]) playChord(p);
+        }
+        lastArpPad = -1;  // Multiple pads
+      } else {
+        playChord(state.activePad);
+        lastArpPad = state.activePad;
+      }
       arpNotePlaying = true;         // Mark as playing for gate logic
     } else {
-      playArpNote(state.activePad, state.arpNoteIndex);
+      // In poly mode, use the current note from the combined pool
+      if (settings.polyMode && polyArpNoteCount > 0) {
+        int polyPad = polyArpPads[polyArpCurrentPos];
+        int polyNote = polyArpNoteIndices[polyArpCurrentPos];
+        playArpNote(polyPad, polyNote);
+      } else {
+        playArpNote(state.activePad, state.arpNoteIndex);
+      }
     }
     arpNoteOnTime = currentTime;
     arpGateOpen = true;
   }
 }
 
+// Build combined note pool from all held pads for poly arp mode
+void buildPolyArpPool() {
+  polyArpNoteCount = 0;
+
+  // Collect notes from all held pads
+  for (int p = 0; p < 9; p++) {
+    if (!padStates[p]) continue;  // Skip pads that aren't held
+
+    ChordV2& chord = pads[p].chord;
+    int notesFromPad = 0;
+
+    for (int n = 0; n < 8; n++) {
+      if (chord.isActive[n] && notesFromPad < settings.maxNotesPerChord) {
+        polyArpPads[polyArpNoteCount] = p;
+        polyArpNoteIndices[polyArpNoteCount] = n;
+        polyArpNoteCount++;
+        notesFromPad++;
+
+        if (polyArpNoteCount >= 72) break;  // Safety limit
+      }
+    }
+    if (polyArpNoteCount >= 72) break;
+  }
+
+  // Reset position if it's now out of bounds
+  if (polyArpCurrentPos >= polyArpNoteCount) {
+    polyArpCurrentPos = 0;
+  }
+
+  polyArpPoolDirty = false;
+}
+
 void advanceArpIndex(int pad) {
+  // In poly mode, use the combined pool
+  if (settings.polyMode && polyArpNoteCount > 0) {
+    advancePolyArpIndex();
+    return;
+  }
+
   ChordV2& chord = pads[pad].chord;
 
   // Count active notes (limited by maxNotesPerChord)
@@ -1504,6 +1593,81 @@ void advanceArpIndex(int pad) {
   bool wrapped = (currentPos == 0 && prevPos != 0);
   if (wrapped && settings.arpOctaveRange > 0 && state.arpMode != 7) {
     // Mode 7 handles its own octave stepping above
+    state.arpOctaveStep++;
+  }
+}
+
+// Advance through combined poly arp pool
+void advancePolyArpIndex() {
+  if (polyArpNoteCount == 0) return;
+
+  int prevPos = polyArpCurrentPos;
+
+  switch (state.arpMode) {
+    case 0: // Up
+      polyArpCurrentPos = (polyArpCurrentPos + 1) % polyArpNoteCount;
+      break;
+
+    case 1: // Down
+      polyArpCurrentPos = (polyArpCurrentPos - 1 + polyArpNoteCount) % polyArpNoteCount;
+      break;
+
+    case 2: // Up-Down
+      if (state.arpDirection) {
+        polyArpCurrentPos++;
+        if (polyArpCurrentPos >= polyArpNoteCount - 1) {
+          state.arpDirection = false;
+        }
+      } else {
+        polyArpCurrentPos--;
+        if (polyArpCurrentPos <= 0) {
+          state.arpDirection = true;
+        }
+      }
+      polyArpCurrentPos = constrain(polyArpCurrentPos, 0, polyArpNoteCount - 1);
+      break;
+
+    case 3: // Down-Up
+      if (!state.arpDirection) {
+        polyArpCurrentPos--;
+        if (polyArpCurrentPos <= 0) {
+          state.arpDirection = true;
+        }
+      } else {
+        polyArpCurrentPos++;
+        if (polyArpCurrentPos >= polyArpNoteCount - 1) {
+          state.arpDirection = false;
+        }
+      }
+      polyArpCurrentPos = constrain(polyArpCurrentPos, 0, polyArpNoteCount - 1);
+      break;
+
+    case 4: // Random
+      polyArpCurrentPos = random(polyArpNoteCount);
+      break;
+
+    case 5: // Order
+    case 6: // Chord (handled specially but still advance)
+      polyArpCurrentPos = (polyArpCurrentPos + 1) % polyArpNoteCount;
+      break;
+
+    case 7: // 2Oct
+      polyArpCurrentPos = (polyArpCurrentPos + 1) % polyArpNoteCount;
+      if (polyArpCurrentPos == 0 && prevPos != 0) {
+        state.arpOctaveStep++;
+        if (state.arpOctaveStep >= 2) {
+          state.arpOctaveStep = 0;
+        }
+      }
+      break;
+  }
+
+  // Update state with current pool note info
+  state.arpNoteIndex = polyArpNoteIndices[polyArpCurrentPos];
+
+  // Advance octave step when wrapping
+  bool wrapped = (polyArpCurrentPos == 0 && prevPos != 0);
+  if (wrapped && settings.arpOctaveRange > 0 && state.arpMode != 7) {
     state.arpOctaveStep++;
   }
 }
@@ -1662,6 +1826,7 @@ void updateGenerativeMode() {
     state.activePad = newPad;
     padStates[oldPad] = false;
     padStates[newPad] = true;
+    polyArpPoolDirty = true;  // Rebuild pool for poly arp
 
     // Play new chord (or trigger glide for arp)
     if (state.arpRate == 0) {
